@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dblm"
+authors = [
+    {name = "Brian Lu"},
+]
+description = "Database Language Model"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+]
+version = "0.0.1"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py37"
+ignore-init-module-imports = true
+select = [
+    "B",
+    "C4",
+    "D",
+    "E",
+    "F",
+    "G",
+    "ISC",
+    "N",
+    "NPY",
+    "PLC",
+    "PLE",
+    "PLW",
+    "RUF",
+    "SIM",
+    "TID252",
+    "UP",
+    "W",
+    "YTT",
+]
+ignore = [
+    "C408",
+    "D1",
+    "D202",
+    "D205",
+    "D212",
+    "D400",
+    "D401",
+    "D415",
+    "E501",
+    "NPY002",
+]
+line-length = 120
+
+[tool.ruff.pydocstyle]
+convention = "google"
