@@ -1,10 +1,9 @@
 from __future__ import annotations
-from dblm.core import graph
 from dblm.core.modeling import distribution
 
 
 class ProbabilisticGraphicalModel(distribution.Distribution):
-    
+
     def graph(self):
         ...
 
@@ -59,4 +58,15 @@ class ProbabilityTable(ProbabilisticGraphicalModel):
         ...
 
     def probability_table(self):
+        ...
+    
+    def log_probability_table(self):
+        ...
+
+class LocalPotentialFunction:
+
+    def potential_table(self):
+        ...
+    
+    def log_potential_table(self):
         ...
