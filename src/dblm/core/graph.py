@@ -13,6 +13,17 @@ class Node:
     def __str__(self):
         return self.__repr__()
 
+class Factor:
+
+    def __init__(self, i) -> None:
+        self.id = i
+
+    def __repr__(self):
+        return f"Factor({self.id})"
+
+    def __str__(self):
+        return self.__repr__()
+
 class Edge:
 
     def __init__(self, i, n1, n2) -> None:
@@ -92,6 +103,40 @@ class Graph:
         for edge_id, child, parent in d["edges"]:
             g._edges[edge_id] = Edge(edge_id, g._nodes[child], g._nodes[parent])
         return g
+class Chain(Graph):
+    #TODO: make a directed chain with directed edges
+    def __init__(self, n) -> None:
+        super().__init__(n)
+        for i in range(n-1):
+            self.add_edge(i, i+1)
+
+class FactorGraph(Graph):
+    def __init__(self, nvars, nfactors) -> None:
+        super().__init__()
+        self._factors = []
+        self._next_factor_id = 0
+        for _ in range(nvars):
+            self.add_node()
+        for _ in range(nfactors):
+            self.add_factor()
+
+    def add_factor(self):
+        factor = Factor(self._next_factor_id)
+        self._next_factor_id += 1
+        self._factors.append(factor)
+        return factor
+
+    def add_edge(self, factor,  node):
+        if isinstance(factor, int):
+            factor = self._factors[factor]
+        if isinstance(node, int):
+            node = self._nodes[node]
+        if not (isinstance(factor, Factor) and isinstance(node, Node)):
+            raise ValueError(f"FactorGraph add_edge expects (Factor, Node), got ({type(factor)}, {type(node)})")
+        edge = Edge(self._next_edge_id, factor, node)
+        self._next_edge_id += 1
+        self._edges.append(edge)
+        return edge
 
 def random_labeled_tree(n: int):
     # generate a Prüfer Sequence

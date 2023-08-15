@@ -1,4 +1,4 @@
-from dblm.core.modeling import distribution
+from dblm.core.interfaces import distribution
 import abc
 
 
