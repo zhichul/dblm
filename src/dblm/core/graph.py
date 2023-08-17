@@ -36,6 +36,22 @@ class Edge:
     def __str__(self):
         return self.__repr__()
 
+    @property
+    def first_node_id(self):
+        return self.nodes[0].id
+
+    @property
+    def second_node_id(self):
+        return self.nodes[1].id
+
+class FactorGraphEdge(Edge):
+    @property
+    def factor_id(self):
+        return self.first_node_id
+
+    @property
+    def variable_id(self):
+        return self.second_node_id
 class Graph:
     """A graph object that should be gradually built up but not modified."""
 
@@ -133,7 +149,7 @@ class FactorGraph(Graph):
             node = self._nodes[node]
         if not (isinstance(factor, Factor) and isinstance(node, Node)):
             raise ValueError(f"FactorGraph add_edge expects (Factor, Node), got ({type(factor)}, {type(node)})")
-        edge = Edge(self._next_edge_id, factor, node)
+        edge = FactorGraphEdge(self._next_edge_id, factor, node)
         self._next_edge_id += 1
         self._edges.append(edge)
         return edge

@@ -1,12 +1,13 @@
 from __future__ import annotations
 from dblm.core.interfaces import pgm
-from dblm.core.modeling import factor_graphs
+from dblm.core.interfaces.pgm import ProbabilityTable
+from dblm.core.modeling import factor_graphs, probability_tables
 import torch.nn as nn
 import torch
 import math
 
 
-class SwitchingTable(nn.Module, pgm.PotentialTable):
+class SwitchingTable(nn.Module, probability_tables.LogLinearTableInferenceMixin, pgm.PotentialTable):
     """This describes a potential table over nvars variables
     each with nvals[i] values, plus a single switch, and
     a output variable that is conceptually a pair (selected_of_nvar, val_of_selected)
@@ -18,7 +19,7 @@ class SwitchingTable(nn.Module, pgm.PotentialTable):
 
     def __init__(self, nvars: int, nvals: list[int]) -> None:
         super().__init__()
-        self._nvars = nvars + 1 # 1 is for the switching variable, 1 for the output variable
+        self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
         self._nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
         logits = torch.zeros(self._nvals).fill_(-math.inf)
         colon = slice(None, None, None)
@@ -28,6 +29,7 @@ class SwitchingTable(nn.Module, pgm.PotentialTable):
                 logits[(colon,) * sw + (val,) + (colon,) * (nvars - sw - 1) + (sw, sum(nvals[:sw]) + val)] = 0
         self.logits = nn.Parameter(logits, requires_grad=False)
 
+    # PotentialTable
     def potential_table(self):
         return self.logits.exp()
 
@@ -39,6 +41,9 @@ class SwitchingTable(nn.Module, pgm.PotentialTable):
 
     def potential_value(self, assignment):
         return self.potential_table()[assignment]
+
+    def renormalize(self):
+        return probability_tables.LogLinearProbabilityTable(self.logits.size(), [], self.logits)
 
 class BatchedSwitchingTables(factor_graphs.FactorGraph):
 

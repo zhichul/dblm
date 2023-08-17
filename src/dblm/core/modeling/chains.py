@@ -31,6 +31,7 @@ class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
         self._factor_variables.append((nvars-1,))
         self._factor_functions.append(final_factor)
 
+    # ProbabilisticGraphicalModel
     def graph(self):
         return self._graph
 
@@ -39,9 +40,25 @@ class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
                                                                     self._nvals,
                                                                     self._factor_variables,
                                                                     self._factor_functions) # type: ignore
+    def to_potential_table(self) -> pgm.PotentialTable:
+        return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars,
+                                                                    self._nvals,
+                                                                    self._factor_variables,
+                                                                    self._factor_functions) # type: ignore
     def to_factor_graph_model(self) -> pgm.FactorGraphModel:
         return factor_graphs.FactorGraph(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
 
+    # BayesianNetwork
+    def local_distributions(self):
+        raise NotImplementedError()
+
+    def local_variables(self):
+        raise NotImplementedError()
+
+    def topological_order(self):
+        raise NotImplementedError()
+
+    # Self
     def save(self, directory):
         os.makedirs(directory, exist_ok=True)
         self._graph.save(os.path.join(directory, constants.GRAPH_FILE))
@@ -67,20 +84,12 @@ class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
             factor_fn.logits.data = torch.tensor(table)
         return fc
 
+    # LocallyNormalizedDistribution
     def likelihood_function(self, assignment):
         raise NotImplementedError()
 
     def log_likelihood_function(self, assignment):
         raise NotImplementedError()
-
-    def local_distributions(self):
-        raise NotImplementedError()
-
-    def local_variables(self):
-        raise NotImplementedError()
-
-    def topological_order(self):
-        return NotImplementedError()
 
 if __name__ == "__main__":
     chain = FixedLengthDirectedChain(2, 3, constants.TensorInitializer.CONSTANT)

@@ -28,6 +28,7 @@ class TreeMRF(nn.Module, pgm.MarkovRandomField):
             self._factor_variables.append((var1, var2)) # type: ignore
             self._factor_functions.append(probability_tables.LogLinearPotentialTable((val1, val2), initializer, requires_grad=requires_grad))
 
+    # ProbabilisticGraphicalModel
     def graph(self):
         return self._graph
 
@@ -36,7 +37,22 @@ class TreeMRF(nn.Module, pgm.MarkovRandomField):
                                                                     self._nvals,
                                                                     self._factor_variables,
                                                                     self._factor_functions) # type: ignore
+    def to_potential_table(self) -> pgm.PotentialTable:
+        return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars,
+                                                                    self._nvals,
+                                                                    self._factor_variables,
+                                                                    self._factor_functions) # type: ignore
+    def to_factor_graph_model(self) -> pgm.FactorGraphModel:
+        return factor_graphs.FactorGraph(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
 
+    # MarkovRandomField
+    def local_potentials(self):
+        return self._factor_functions
+
+    def local_variables(self):
+        return self._factor_variables
+
+    # Self
     def save(self, directory):
         os.makedirs(directory, exist_ok=True)
         self._graph.save(os.path.join(directory, constants.GRAPH_FILE))
@@ -62,15 +78,7 @@ class TreeMRF(nn.Module, pgm.MarkovRandomField):
             factor_fn.logits.data = torch.tensor(table)
         return mrf
 
-    def to_factor_graph_model(self) -> pgm.FactorGraphModel:
-        return factor_graphs.FactorGraph(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
-
-    def local_potentials(self):
-        return self._factor_functions
-
-    def local_variables(self):
-        return self._factor_variables
-
+    # GloballyNormalizedDistribution
     def unnormalized_likelihood_function(self, assignment):
         raise NotImplementedError()
 
@@ -82,8 +90,6 @@ class TreeMRF(nn.Module, pgm.MarkovRandomField):
 
     def log_partition_function(self):
         return NotImplementedError()
-
-
 
 if __name__ == "__main__":
     # TODO move these into proper test files

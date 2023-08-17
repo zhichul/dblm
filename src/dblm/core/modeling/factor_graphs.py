@@ -28,18 +28,24 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         self._partition_function_cache = None
         self._log_partition_function_cache = None
 
-    def factor_variables(self) -> list[tuple[int]]:
-        return self._factor_variables
-
-    def factor_functions(self) -> list[distribution.Distribution]:
-        return self._factor_functions # type: ignore
-
+    # ProbabilisticGraphicalModel
     def graph(self):
         return self._graph
 
     def to_probability_table(self) -> pgm.ProbabilityTable:
         return probability_tables.LogLinearProbabilityTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
 
+    def to_potential_table(self) -> pgm.PotentialTable:
+        return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
+
+    # FactorGraph
+    def factor_variables(self) -> list[tuple[int]]:
+        return self._factor_variables
+
+    def factor_functions(self) -> list[distribution.Distribution]:
+        return self._factor_functions # type: ignore
+
+    # GloballyNormalizedDistribution
     def unnormalized_likelihood_function(self, assignment):
         u = 1
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
@@ -85,6 +91,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
                 lz = lz + self.log_unnormalized_likelihood_function(assignment)
         return self._log_partition_function_cache
 
+    # Self
     @staticmethod
     def join(factor_graph_1, factor_graph_2, shared: dict[int, int]) -> FactorGraph:
         """Always shifts the indices of the second graph, so better to join from the right.
@@ -93,8 +100,8 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         # TODO: the shared argument is not friendly to a chain of joins since every join updates some indices.
         if not (isinstance(factor_graph_1, FactorGraph) and isinstance(factor_graph_2, FactorGraph)):
             raise ValueError
-        size_1 = factor_graph_1.nvars()
-        size_2 = factor_graph_2.nvars()
+        size_1 = factor_graph_1.nvars
+        size_2 = factor_graph_2.nvars
         nvars_o = size_1 + size_2 - len(shared)
 
         # map
@@ -108,9 +115,11 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
                 f2_to_f1[i] = shared[i]
 
         # construct nvals and factor_variables
-        nvals_o = list(factor_graph_1.nvals()) + [nval for i, nval in enumerate(factor_graph_2.nvals()) if i not in shared] # append the non-shared nodes' nvals from graph 2
+        nvals_o = list(factor_graph_1.nvals) + [nval for i, nval in enumerate(factor_graph_2.nvals) if i not in shared] # append the non-shared nodes' nvals from graph 2
         factor_variables_o = list(factor_graph_1.factor_variables()) + [tuple(f2_to_f1[var] for var in vars) for vars in factor_graph_2.factor_variables()] # append the factor vars from graph 2 but mapped to new indices
         factor_functions_o = list(factor_graph_1.factor_functions()) + list(factor_graph_2.factor_functions()) # append the factor functions from graph 2
 
         o = FactorGraph(nvars_o, nvals_o, factor_variables_o, factor_functions_o) # type: ignore
         return o
+
+    # TODO: implement saving and loading

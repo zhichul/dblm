@@ -1,10 +1,12 @@
 import enum
 
+DEBUG_MODE=True
 
 class TensorInitializer(enum.Enum):
     CONSTANT = enum.auto()
     GAUSSIAN = enum.auto()
     UNIFORM = enum.auto()
+    XAVIER = enum.auto()
 
 
 FACTOR_VARIABLES="factor_variables"
