@@ -1,7 +1,8 @@
 from __future__ import annotations
+import code
 from typing import Sequence
 from dblm.core.interfaces import pgm, featurizer
-from dblm.core.modeling import factor_graphs
+from dblm.core.modeling import factor_graphs, bayesian_networks
 from dblm.core.modeling import constants
 import torch.nn as nn
 import torch
@@ -184,6 +185,16 @@ class LogLinearProbabilityMixin:
         factor_vars = [list(range(nvars))]
         factor_functions = [self]
         return factor_graphs.FactorGraph(nvars, nvals, factor_vars, factor_functions) # type: ignore
+
+    def to_bayesian_network(self) -> pgm.FactorGraphModel:
+        nvars = self.nvars # type:ignore assumes whoever is using the mixin is implementing MultivariateFunction
+        nvals = self.nvals # type:ignore assumes whoever is using the mixin is implementing MultivariateFunction
+        factor_vars = [list(range(nvars))]
+        parents = [self._parents]
+        children = [self._children]
+        factor_functions = [self]
+        topo_order = [0]
+        return bayesian_networks.BayesianNetwork(nvars, nvals, factor_vars, parents, children, factor_functions, topo_order) # type:ignore
 
 class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.ProbabilityTable, pgm.PotentialTable):
     def __init__(self, size, parents: list[int], initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True) -> None:

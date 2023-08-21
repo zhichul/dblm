@@ -159,26 +159,26 @@ class TestTreeChainSwitch(unittest.TestCase):
         torch.testing.assert_close(inference_results.messages_to_factors[1][37].potential_table(), torch.tensor([0.0, 1.0, 0.0])) # type:ignore
         self.assertIs(inference_results.messages_to_factors[1][38], None) # type:ignore
 
-        torch.testing.assert_close(inference_results.query_marginal[0].probability_table(), torch.tensor([1.0, 0]))
-        torch.testing.assert_close(inference_results.query_marginal[1].probability_table(), torch.tensor([0.0,0.0,1.0,0.0]))
-        torch.testing.assert_close(inference_results.query_marginal[2].probability_table(), torch.tensor([1.0]))
-        torch.testing.assert_close(inference_results.query_marginal[3].probability_table(), torch.tensor([0.0, 1.0, 0]))
-        torch.testing.assert_close(inference_results.query_marginal[4].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
-        torch.testing.assert_close(inference_results.query_marginal[5].probability_table(), torch.tensor([1.0, 0.0, 0.0]))
-        torch.testing.assert_close(inference_results.query_marginal[6].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
-        torch.testing.assert_close(inference_results.query_marginal[7].probability_table(), torch.tensor([0.0, 1.0, 0]))
+        torch.testing.assert_close(inference_results.query_marginals[0].probability_table(), torch.tensor([1.0, 0]))
+        torch.testing.assert_close(inference_results.query_marginals[1].probability_table(), torch.tensor([0.0,0.0,1.0,0.0]))
+        torch.testing.assert_close(inference_results.query_marginals[2].probability_table(), torch.tensor([1.0]))
+        torch.testing.assert_close(inference_results.query_marginals[3].probability_table(), torch.tensor([0.0, 1.0, 0]))
+        torch.testing.assert_close(inference_results.query_marginals[4].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
+        torch.testing.assert_close(inference_results.query_marginals[5].probability_table(), torch.tensor([1.0, 0.0, 0.0]))
+        torch.testing.assert_close(inference_results.query_marginals[6].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
+        torch.testing.assert_close(inference_results.query_marginals[7].probability_table(), torch.tensor([0.0, 1.0, 0]))
         self.assertEqual(inference_results.messages_to_factors[9][34].potential_table()[0].item(), math.inf) # type:ignore this will overflow
 
 
         inference_results = bp.inference(self.model, {8:4,9:6,10:0,11:6,12:4}, [0,1,2, 3,4,5,6,7], iterations=10, return_messages=True, renormalize=True)
-        torch.testing.assert_close(inference_results.query_marginal[0].probability_table(), torch.tensor([1.0, 0]))
-        torch.testing.assert_close(inference_results.query_marginal[1].probability_table(), torch.tensor([0.0,0.0,1.0,0.0]))
-        torch.testing.assert_close(inference_results.query_marginal[2].probability_table(), torch.tensor([1.0]))
-        torch.testing.assert_close(inference_results.query_marginal[3].probability_table(), torch.tensor([0.0, 1.0, 0]))
-        torch.testing.assert_close(inference_results.query_marginal[4].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
-        torch.testing.assert_close(inference_results.query_marginal[5].probability_table(), torch.tensor([1.0, 0.0, 0.0]))
-        torch.testing.assert_close(inference_results.query_marginal[6].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
-        torch.testing.assert_close(inference_results.query_marginal[7].probability_table(), torch.tensor([0.0, 1.0, 0]))
+        torch.testing.assert_close(inference_results.query_marginals[0].probability_table(), torch.tensor([1.0, 0]))
+        torch.testing.assert_close(inference_results.query_marginals[1].probability_table(), torch.tensor([0.0,0.0,1.0,0.0]))
+        torch.testing.assert_close(inference_results.query_marginals[2].probability_table(), torch.tensor([1.0]))
+        torch.testing.assert_close(inference_results.query_marginals[3].probability_table(), torch.tensor([0.0, 1.0, 0]))
+        torch.testing.assert_close(inference_results.query_marginals[4].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
+        torch.testing.assert_close(inference_results.query_marginals[5].probability_table(), torch.tensor([1.0, 0.0, 0.0]))
+        torch.testing.assert_close(inference_results.query_marginals[6].probability_table(), torch.tensor([0.0, 0.0, 1.0]))
+        torch.testing.assert_close(inference_results.query_marginals[7].probability_table(), torch.tensor([0.0, 1.0, 0]))
         self.assertLess(inference_results.messages_to_factors[9][34].potential_table()[0], math.inf) # type:ignore this will not overflow
 
 if __name__ == '__main__':

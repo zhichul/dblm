@@ -3,7 +3,8 @@ import itertools
 
 import tqdm
 from dblm.core import graph
-from dblm.core.modeling import probability_tables
+from dblm.core.interfaces.pgm import ProbabilisticGraphicalModel
+from dblm.core.modeling import probability_tables, utils
 from dblm.core.interfaces import distribution, pgm
 import torch.nn as nn
 
@@ -18,8 +19,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         self._nvars = nvars
         self._nvals = nvals
         self._factor_variables = factor_variables
-        self._factor_functions = nn.ModuleList()
-        self._factor_functions.extend(factor_functions) # type: ignore
+        self._factor_functions = nn.ModuleList(factor_functions) # type: ignore
         self._graph = graph.FactorGraph(nvars, len(factor_functions))
         for i in range(len(factor_functions)):
             for var in factor_variables[i]:
@@ -37,6 +37,33 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
 
     def to_potential_table(self) -> pgm.PotentialTable:
         return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
+
+    def fix_variables(self, observation: dict[int, int]) -> FactorGraph:
+        factor_variables, factor_functions = self.get_conditional_factors(observation)
+        return FactorGraph(self.nvars, self.nvals,factor_variables, factor_functions)
+
+    def get_conditional_factors(self, observation) -> tuple[list[tuple[int]], list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | pgm.PotentialTable]]:
+        # modify the factor graph to kill observed variables
+        factor_variables = list(self._factor_variables)
+        factor_functions = list(self._factor_functions)
+        for i in range(len(self._factor_variables)):
+            # convert to potential table
+            if not isinstance(factor_functions[i], pgm.PotentialTable):
+                factor_functions[i] = factor_functions[i].to_potential_table() # type:ignore
+            factor_vars = factor_variables[i]
+            new_factor_vars = []
+            # check for local observation and update factor var list / factor function
+            local_observation = dict()
+            for local_name, global_name in enumerate(factor_vars):
+                if global_name in observation:
+                    local_observation[local_name] = observation[global_name]
+                else:
+                    new_factor_vars.append(global_name)
+
+            if len(local_observation) > 0:
+                factor_variables[i] = tuple(new_factor_vars) # type:ignore overwrite with new factor var list
+                factor_functions[i] = factor_functions[i].fix_variables(local_observation) # type:ignore overwrite factor function
+        return factor_variables, factor_functions # type:ignore
 
     # FactorGraph
     def factor_variables(self) -> list[tuple[int]]:
@@ -104,15 +131,8 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         size_2 = factor_graph_2.nvars
         nvars_o = size_1 + size_2 - len(shared)
 
-        # map
-        f2_to_f1 = dict()
-        next_node_id = size_1
-        for i in range(size_2):
-            if i not in shared:
-                f2_to_f1[i] = next_node_id
-                next_node_id += 1
-            else:
-                f2_to_f1[i] = shared[i]
+        # variable index map
+        f2_to_f1 = utils.map_21(size_1, size_2, shared)
 
         # construct nvals and factor_variables
         nvals_o = list(factor_graph_1.nvals) + [nval for i, nval in enumerate(factor_graph_2.nvals) if i not in shared] # append the non-shared nodes' nvals from graph 2

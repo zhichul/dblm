@@ -10,6 +10,7 @@ from dblm.core import graph
 import torch.nn as nn
 
 class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
+    #TODO this is actully not locally normalized due to the last factor so is technically not a BayesianNetwork
 
     def __init__(self, nvars: int, nvals: int, initializer: constants.TensorInitializer, chain=None, requires_grad=True) -> None: # type: ignore
         super().__init__()
@@ -48,11 +49,20 @@ class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
     def to_factor_graph_model(self) -> pgm.FactorGraphModel:
         return factor_graphs.FactorGraph(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
 
+    def fix_variables(self, observation):
+        raise NotImplementedError()
+
     # BayesianNetwork
     def local_distributions(self):
         raise NotImplementedError()
 
     def local_variables(self):
+        raise NotImplementedError()
+
+    def local_parents(self):
+        raise NotImplementedError()
+
+    def local_children(self):
         raise NotImplementedError()
 
     def topological_order(self):

@@ -5,5 +5,5 @@ import abc
 class Sampler(abc.ABC):
 
     @abc.abstractmethod
-    def sample(self, distribution: distribution.Distribution):
+    def sample(self, n, distribution: distribution.Distribution):
         ...

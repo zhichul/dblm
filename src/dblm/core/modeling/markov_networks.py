@@ -45,6 +45,9 @@ class TreeMRF(nn.Module, pgm.MarkovRandomField):
     def to_factor_graph_model(self) -> pgm.FactorGraphModel:
         return factor_graphs.FactorGraph(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
 
+    def fix_variables(self, observation):
+        raise NotImplementedError()
+
     # MarkovRandomField
     def local_potentials(self):
         return self._factor_functions

@@ -1,6 +1,5 @@
 from __future__ import annotations
 from dblm.core.interfaces import pgm
-from dblm.core.interfaces.pgm import ProbabilityTable
 from dblm.core.modeling import factor_graphs, probability_tables
 import torch.nn as nn
 import torch

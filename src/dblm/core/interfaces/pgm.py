@@ -21,6 +21,7 @@ class MultivariateFunction:
     @property
     def nvars(self) -> int:
         return self._nvars
+
 class ProbabilisticGraphicalModel(MultivariateFunction, abc.ABC):
 
     @abc.abstractmethod
@@ -39,6 +40,10 @@ class ProbabilisticGraphicalModel(MultivariateFunction, abc.ABC):
     def to_potential_table(self) -> PotentialTable:
         raise NotImplementedError()
 
+    @abc.abstractmethod
+    def fix_variables(self, observation: dict[int, int]) -> ProbabilisticGraphicalModel:
+        raise NotImplementedError()
+
 class FactorGraphModel(distribution.GloballyNormalizedDistribution, ProbabilisticGraphicalModel):
 
     def to_factor_graph_model(self) -> FactorGraphModel:
@@ -52,6 +57,13 @@ class FactorGraphModel(distribution.GloballyNormalizedDistribution, Probabilisti
     def factor_functions(self) -> list[distribution.Distribution]:
         ...
 
+    @abc.abstractmethod
+    def fix_variables(self, observation: dict[int, int]) -> FactorGraphModel:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def get_conditional_factors(self, observation: dict[int, int]) -> tuple[list[tuple[int]], list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | PotentialTable]]:
+        raise NotImplementedError()
 
 class BayesianNetwork(distribution.LocallyNormalizedDistribution, ProbabilisticGraphicalModel):
 
@@ -64,10 +76,20 @@ class BayesianNetwork(distribution.LocallyNormalizedDistribution, ProbabilisticG
         ...
 
     @abc.abstractmethod
-    def local_variables(self) -> list[distribution.Distribution]:
+    def local_variables(self) -> list[tuple[int]]:
         ...
 
+    @abc.abstractmethod
+    def local_parents(self) -> list[tuple[int]]:
+        ...
 
+    @abc.abstractmethod
+    def local_children(self) -> list[tuple[int]]:
+        ...
+
+    @abc.abstractmethod
+    def fix_variables(self, observation: dict[int, int]) -> BayesianNetwork:
+        raise NotImplementedError()
 class MarkovRandomField(distribution.GloballyNormalizedDistribution, ProbabilisticGraphicalModel):
 
     @abc.abstractmethod
@@ -77,6 +99,10 @@ class MarkovRandomField(distribution.GloballyNormalizedDistribution, Probabilist
     @abc.abstractmethod
     def local_variables(self) -> list[distribution.Distribution]:
         ...
+
+    @abc.abstractmethod
+    def fix_variables(self, observation: dict[int, int]) -> MarkovRandomField:
+        raise NotImplementedError()
 
 class PotentialTable(MultivariateFunction, abc.ABC):
 
@@ -108,7 +134,7 @@ class PotentialTable(MultivariateFunction, abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def renormalize(self) -> PotentialTable:
+    def renormalize(self) -> ProbabilityTable:
         raise NotImplementedError
 
 class ProbabilityTable(distribution.LocallyNormalizedDistribution, PotentialTable, ProbabilisticGraphicalModel):
@@ -124,8 +150,9 @@ class ProbabilityTable(distribution.LocallyNormalizedDistribution, PotentialTabl
     def log_probability_table(self) -> torch.Tensor:
         ...
 
-    def renormalize(self) -> ProbabilityTable:
-        return self
+    @abc.abstractmethod
+    def to_bayesian_network(self) -> BayesianNetwork:
+        ...
 
-    def to_potential_table(self) -> PotentialTable:
+    def renormalize(self) -> ProbabilityTable:
         return self

@@ -5,13 +5,12 @@ from dblm.core.interfaces import pgm
 from dblm.core.interfaces import inferencer
 from dblm.core.modeling import probability_tables
 
-import code
 import collections
 
 @dataclasses.dataclass
 class InferenceResults:
 
-    query_marginal: list[probability_tables.LogLinearProbabilityTable]
+    query_marginals: list[probability_tables.LogLinearProbabilityTable]
     messages_to_variables: list[list[pgm.PotentialTable | None]] | None = None
     messages_to_factors: list[list[pgm.PotentialTable | None]] | None = None
 
@@ -24,7 +23,7 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
     def inference(self, model: pgm.FactorGraphModel, observation: dict[int, int], query: list[int], iterations=10, return_messages=False, renormalize=True):
         if any(query_var in observation for query_var in query):
             raise ValueError("query is part of observation, did you have a typo?")
-        factor_variables, factor_functions = self._get_conditional_factors(model, observation)
+        factor_variables, factor_functions = model.get_conditional_factors(observation)
         factor_graph: graph.FactorGraph = model.graph()
         messages_to_factors = [None] * factor_graph.num_edges
         messages_to_variables = [None] * factor_graph.num_edges
@@ -110,26 +109,3 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
                                                                         outgoing_nvals_before_marginalization,
                                                                         outgoing_factor_variables,
                                                                         outgoing_factor_functions).marginalize_over(marginalization_indices)
-
-    def _get_conditional_factors(self, model: pgm.FactorGraphModel, observation: dict[int, int]):
-        # modify the factor graph to kill observed variables
-        factor_variables = list(model.factor_variables())
-        factor_functions = list(model.factor_functions())
-        for i in range(len(model.factor_variables())):
-            # convert to potential table
-            if not isinstance(factor_functions[i], pgm.PotentialTable):
-                factor_functions[i] = factor_functions[i].to_potential_table() # type:ignore
-            factor_vars = factor_variables[i]
-            new_factor_vars = []
-            # check for local observation and update factor var list / factor function
-            local_observation = dict()
-            for local_name, global_name in enumerate(factor_vars):
-                if global_name in observation:
-                    local_observation[local_name] = observation[global_name]
-                else:
-                    new_factor_vars.append(global_name)
-
-            if len(local_observation) > 0:
-                factor_variables[i] = tuple(new_factor_vars) # type:ignore overwrite with new factor var list
-                factor_functions[i] = factor_functions[i].fix_variables(local_observation) # type:ignore overwrite factor function
-        return factor_variables, factor_functions

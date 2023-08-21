@@ -6,6 +6,7 @@ import torch.nn as nn
 class XTermFrequency(featurizer.Featurizer, nn.Module):
 
     def __init__(self, vocab_size:int) -> None:
+        super().__init__()
         self.vocab_size = vocab_size
 
     @property
@@ -14,8 +15,9 @@ class XTermFrequency(featurizer.Featurizer, nn.Module):
 
     def forward(self, assignments):
         """Assumes that assignments contain only the assignments to x"""
-        assert len(assignments.size()) == 2 and assignments.max().item() < self.vocab_size
-        counts: torch.Tensor = (assignments[...,None] == torch.arange(self.vocab_size)[None, None, :]).sum(dim=1)
+        size = assignments.size()
+        assert len(size) <= 2 and assignments.max().item() < self.vocab_size
+        counts: torch.Tensor = (assignments[...,None] == torch.arange(self.vocab_size)[(*[None] * len(size), slice(None,None,None))]).sum(dim=len(size)-1)
         frequency = counts / counts.sum(dim=-1,keepdim=True)
         return frequency
 
