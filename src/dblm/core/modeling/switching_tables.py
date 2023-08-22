@@ -1,12 +1,12 @@
 from __future__ import annotations
 from dblm.core.interfaces import pgm
-from dblm.core.modeling import factor_graphs, probability_tables
+from dblm.core.modeling import constants, factor_graphs, probability_tables
 import torch.nn as nn
 import torch
 import math
 
 
-class SwitchingTable(nn.Module, probability_tables.LogLinearTableInferenceMixin, pgm.PotentialTable):
+class SwitchingTable(probability_tables.LogLinearTableInferenceMixin, probability_tables.LogLinearProbabilityMixin, nn.Module, pgm.ProbabilityTable):
     """This describes a potential table over nvars variables
     each with nvals[i] values, plus a single switch, and
     a output variable that is conceptually a pair (selected_of_nvar, val_of_selected)
@@ -16,33 +16,43 @@ class SwitchingTable(nn.Module, probability_tables.LogLinearTableInferenceMixin,
     Variable is indexed as: [0:(nvars-1) is z0 |nvars is switch |nvars+1 is output]
     """
 
-    def __init__(self, nvars: int, nvals: list[int]) -> None:
-        super().__init__()
-        self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
-        self._nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
-        logits = torch.zeros(self._nvals).fill_(-math.inf)
-        colon = slice(None, None, None)
-        for sw in range(nvars):
-            for val in range(nvals[sw]):
-                # this line indexes the rows of the table whose sw'th variable takes value val
-                logits[(colon,) * sw + (val,) + (colon,) * (nvars - sw - 1) + (sw, sum(nvals[:sw]) + val)] = 0
-        self.logits = nn.Parameter(logits, requires_grad=False)
+    def __init__(self, nvars: int, nvals: list[int], mode:constants.SwitchingMode = constants.SwitchingMode.VARPAIRVAL) -> None:
+        if mode == constants.SwitchingMode.VARPAIRVAL:
+            self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
+            self._nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
+            super().__init__(self._nvals, list(range(nvars + 1))) # size and parents
+            logits = torch.zeros(self._nvals).fill_(-math.inf)
+            colon = slice(None, None, None)
+            for sw in range(nvars):
+                for val in range(nvals[sw]):
+                    # this line indexes the rows of the table whose sw'th variable takes value val
+                    logits[(colon,) * sw + (val,) + (colon,) * (nvars - sw - 1) + (sw, sum(nvals[:sw]) + val)] = 0
+            self.logits = nn.Parameter(logits, requires_grad=False)
+        elif mode == constants.SwitchingMode.MIXTURE:
+            if not len(set(nvals)) == 1:
+                raise ValueError(f"Cannot have mixture of different outcome space sizes: {nvals}")
+            self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
+            self._nvals = [*nvals, nvars, nvals[0]] # [nvars] is for the switching variable, nvals[0] is for the output variable
+            super().__init__(self._nvals, list(range(nvars + 1))) # size and parents
+            logits = torch.zeros(self._nvals).fill_(-math.inf)
+            colon = slice(None, None, None)
+            for sw in range(nvars):
+                for val in range(nvals[sw]):
+                    # this line indexes the rows of the table whose sw'th variable takes value val
+                    logits[(colon,) * sw + (val,) + (colon,) * (nvars - sw - 1) + (sw, val)] = 0
+            self.logits = nn.Parameter(logits, requires_grad=False)
+        else:
+            raise NotImplementedError()
+        self.mode = mode
 
-    # PotentialTable
-    def potential_table(self):
+    def probability_table(self) -> torch.Tensor:
         return self.logits.exp()
 
-    def log_potential_table(self):
+    def log_probability_table(self) -> torch.Tensor:
         return self.logits
 
-    def log_potential_value(self, assignment):
-        return self.log_potential_table()[assignment]
-
-    def potential_value(self, assignment):
-        return self.potential_table()[assignment]
-
-    def renormalize(self):
-        return probability_tables.LogLinearProbabilityTable(self.logits.size(), [], self.logits)
+    def __repr__(self):
+        return f"SwitchingTable({self.mode})"
 
 class BatchedSwitchingTables(factor_graphs.FactorGraph):
 

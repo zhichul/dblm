@@ -1,5 +1,7 @@
 
 from __future__ import annotations
+
+import torch
 from dblm.core.interfaces import distribution, pgm
 from dblm.core.interfaces.pgm import FactorGraphModel, ProbabilityTable
 from dblm.core.modeling import factor_graphs, probability_tables, utils
@@ -59,10 +61,16 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
 
     # locally normalized distribution
     def likelihood_function(self, assignment):
-        raise NotImplementedError()
+        return self.log_likelihood_function(assignment).exp()
 
-    def log_likelihood_function(self, assigment):
-        raise NotImplementedError()
+    def log_likelihood_function(self, assignment):
+        log_likelihood = torch.tensor(0.0)
+        for i in self.topological_order():
+            factor_vars, factor_function = self._factor_variables[i], self._factor_functions[i]
+            factor_assignment = tuple(assignment[var] for var in factor_vars)
+            factor_potential = factor_function.log_likelihood_function(factor_assignment) # type:ignore
+            log_likelihood = log_likelihood + factor_potential
+        return log_likelihood
 
     @staticmethod
     def join(bayes1, bayes2, shared):

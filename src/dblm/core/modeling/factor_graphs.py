@@ -1,9 +1,12 @@
 from __future__ import annotations
+import code
 import itertools
+from typing import Sequence
+import torch
 
 import tqdm
 from dblm.core import graph
-from dblm.core.interfaces.pgm import ProbabilisticGraphicalModel
+from dblm.core.inferencers import belief_propagation
 from dblm.core.modeling import probability_tables, utils
 from dblm.core.interfaces import distribution, pgm
 import torch.nn as nn
@@ -85,6 +88,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
                 factor_potential = factor_function.potential_value(factor_assignment)
             else:
                 raise AssertionError(f"unexpected factor type: {type(factor_function)}")
+            print(factor_potential)
             u = u * factor_potential
         return u
 
@@ -143,3 +147,64 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         return o
 
     # TODO: implement saving and loading
+
+class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.IncompleteLikelihoodMixin):
+
+    def __init__(self, nvars: int, nvals: list[int], factor_variables: list[tuple[int]], factor_functions: list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | pgm.PotentialTable], observable: list[tuple[int, int]]) -> None:
+        """`observable` is a list of pairs of which the first is the factor index, and the second is the variable index.
+        Assumes that observable is sorted w.r.t. the factor index, and that the factor graph represents a autoregressive model,
+        such that when computing p(x_i | prefix), the marginalization over x>i can be skipped (since an autoregressive model is
+        locally normalized). It also assumes any factor that generates z/x conditioned on x_i is ordered after the factor for x_i
+        in the factor_functions list.
+        """
+        super().__init__(nvars, nvals, factor_variables, factor_functions)
+        self.observable = observable
+        self.observable_factors = {k for k,_ in observable}
+        self.observable_variables = {v for _,v in observable}
+        self.observable_variables_to_factors = {v:k for k,v in observable}
+
+    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]]):
+        return self.incomplete_log_likelihood_function(assignment).exp() # type:ignore
+
+    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]], iterations=10):
+        """Assumes assignment is sorted according to the order of self.observable."""
+        assignment = list(assignment)
+        if dict(assignment).keys() != self.observable_variables:
+            raise ValueError(f"can only evaluate the incomplete log likelihood of the prespecified observables: {self.observable_variables} got {dict(assignment).keys()}")
+        bp = belief_propagation.FactorGraphBeliefPropagation()
+        log_likelihood = torch.tensor(0.0)
+        for i, (var, val) in enumerate(assignment):
+            factor = self.observable_variables_to_factors[var]
+            sub_model = FactorGraph(var+1, self.nvals[:var+1], self._factor_variables[:factor+1], self._factor_functions[:factor+1]) #type:ignore
+            inference_results = bp.inference(sub_model, dict(assignment[:i]), [var], iterations=iterations) # observe the previous, query the ith
+            log_conditional_likelihood = inference_results.query_marginals[0].log_probability_table()[val]
+            log_likelihood = log_likelihood + log_conditional_likelihood
+        return log_likelihood
+
+    @staticmethod
+    def from_factor_graph(fg: pgm.FactorGraphModel, observable: list[tuple[int, int]]):
+        return BPAutoregressiveIncompleteLikelihoodFactorGraph(fg.nvars, fg.nvals, fg.factor_variables(), fg.factor_functions(), observable) # type:ignore
+
+class AutoRegressiveBayesNetMixin:
+    """This class gives factor graphs that are really autoregressive bayes nets the bayes net interface.
+    Assumes whoever subclasses this implements pgm.FactorGraphModel
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    # Bayes Net interface
+    def local_distributions(self):
+        return self.factor_functions() # type:ignore
+
+    def topological_order(self):
+        return list(range(len(self.factor_functions()))) # type: ignore
+
+    def local_variables(self):
+        return self.factor_variables() # type:ignore
+
+    def local_parents(self):
+        return [vars[:-1] for vars in self.factor_variables()] # type:ignore
+
+    def local_children(self):
+        return [vars[-1:] for vars in self.factor_variables()] # type:ignore

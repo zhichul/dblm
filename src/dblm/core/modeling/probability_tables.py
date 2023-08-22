@@ -1,5 +1,4 @@
 from __future__ import annotations
-import code
 from typing import Sequence
 from dblm.core.interfaces import pgm, featurizer
 from dblm.core.modeling import factor_graphs, bayesian_networks
@@ -40,7 +39,7 @@ class LogLinearTable(nn.Module):
             self.logits = nn.Parameter(torch.zeros(size), requires_grad=requires_grad)
         elif initializer is constants.TensorInitializer.UNIFORM:
             self.logits = nn.Parameter(torch.rand(size), requires_grad=requires_grad)
-        elif isinstance(initializer, torch.Tensor):
+        elif isinstance(initializer, (nn.Parameter, torch.Tensor)):
             if list(initializer.size()) != list(size):
                 raise ValueError(f"Expected initializer size ({initializer.size()}) to match decalred size ({size})")
             self.logits = initializer
@@ -195,6 +194,24 @@ class LogLinearProbabilityMixin:
         factor_functions = [self]
         topo_order = [0]
         return bayesian_networks.BayesianNetwork(nvars, nvals, factor_vars, parents, children, factor_functions, topo_order) # type:ignore
+
+    def fix_variables(self, observation: dict[int, int]):
+        index = [slice(None,None,None)] * self.nvars # type:ignore
+        for k,v in observation.items():
+            index[k] = v # type:ignore
+        logits = self.log_probability_table()[tuple(index)] #type:ignore
+        children_set = set(self._children)
+        parents_set = set(self._parents)
+        if any(k in children_set for k in observation):
+            return LogLinearPotentialTable(logits.size(), logits)
+        else:
+            new_parents = []
+            new_par_index = 0
+            for i in range(self.nvars): # type:ignore assumes nvars is implemented by whoever inherits this mixin
+                if i not in observation and i in parents_set:
+                    new_parents.append(new_par_index)
+                    new_par_index += 1
+            return LogLinearProbabilityTable(logits.size(), new_parents, logits)
 
 class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.ProbabilityTable, pgm.PotentialTable):
     def __init__(self, size, parents: list[int], initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True) -> None:

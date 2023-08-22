@@ -50,7 +50,7 @@ class FactorGraphModel(distribution.GloballyNormalizedDistribution, Probabilisti
         return self
 
     @abc.abstractmethod
-    def factor_variables(self) -> list[list[int]]:
+    def factor_variables(self) -> list[tuple[int]]:
         ...
 
     @abc.abstractmethod
@@ -155,4 +155,7 @@ class ProbabilityTable(distribution.LocallyNormalizedDistribution, PotentialTabl
         ...
 
     def renormalize(self) -> ProbabilityTable:
+        return self
+
+    def to_probability_table(self) -> ProbabilityTable:
         return self

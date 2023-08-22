@@ -8,6 +8,12 @@ class TensorInitializer(enum.Enum):
     UNIFORM = enum.auto()
     XAVIER = enum.auto()
 
+class DiscreteNoise(enum.Enum):
+    UNIFORM = enum.auto()
+
+class SwitchingMode(enum.Enum):
+    MIXTURE = enum.auto()
+    VARPAIRVAL = enum.auto()
 
 FACTOR_VARIABLES="factor_variables"
 FACTOR_FUNCTIONS="factor_functions"
