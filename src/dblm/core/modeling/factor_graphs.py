@@ -88,7 +88,6 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
                 factor_potential = factor_function.potential_value(factor_assignment)
             else:
                 raise AssertionError(f"unexpected factor type: {type(factor_function)}")
-            print(factor_potential)
             u = u * factor_potential
         return u
 

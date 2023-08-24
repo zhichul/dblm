@@ -6,6 +6,8 @@ from dblm.core.modeling import constants
 import torch.nn as nn
 import torch
 
+from dblm.utils import safe_operations
+
 
 class LogLinearFeaturizedTable(nn.Module):
 
@@ -62,10 +64,13 @@ class LogLinearTableInferenceMixin:
         logits = self.log_potential_table()[index] #type:ignore
         return LogLinearPotentialTable(logits.size(), logits)
 
-    def marginalize_over(self, variables):
+    def marginalize_over(self, variables: tuple[int]):
+        if len(variables) == 0:
+            return self
         logits = self.log_potential_table() # type:ignore
         for var in sorted(variables, reverse=True):
-            logits = logits.logsumexp(dim=var)
+            logits = safe_operations.logsumexp(logits, dim=var)
+        # logits = logits.logsumexp(dim=tuple(variables))
         return LogLinearPotentialTable(logits.size(), logits)
 
 class LogLinearPotentialMixin:

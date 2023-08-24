@@ -16,14 +16,19 @@ from dblm.utils import seeding
 
 class LogLinearLatentMarkovTransitionBase(nn.Module):
 
-    def __init__(self, nstate:int, vocab_size:int, order:int=1) -> None:
+    def __init__(self, nstate:int, vocab_size:int, order:int=1, initializer:constants.TensorInitializer=constants.TensorInitializer.UNIFORM) -> None:
         super().__init__()
         self.featurizer = x_term_frequency.XTermFrequency(vocab_size)
         self.vocab_size = vocab_size
         self.nstate = nstate
         self.order = order
         self.layer = nn.Linear(self.featurizer.out_features, (nstate ** (order + 1)), bias=True) # bias is for modeling transition directly
-        nn.init.zeros_(self.layer.weight) # intialize at uniform
+        if initializer == constants.TensorInitializer.CONSTANT:
+            nn.init.zeros_(self.layer.weight) # intialize at uniform
+        elif initializer == constants.TensorInitializer.UNIFORM:
+            nn.init.uniform_(self.layer.weight,0,0.1) # intialize at uniform
+        else:
+            raise NotImplementedError()
         nn.init.zeros_(self.layer.bias) # intialize at uniform think of this as the shape of (nstate, ..., nstate) each row corresponding to a ngram prefix
 
     def logits(self, x_assignment):
@@ -109,10 +114,10 @@ class LogLinearLatentMarkovTransition(probability_tables.LogLinearProbabilityMix
 
 class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmission(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.FactorGraph, pgm.BayesianNetwork):
 
-    def __init__(self, z0_nvars, z0_nvals, length: int, initializer: constants.TensorInitializer, requires_grad=True):
+    def __init__(self, z0_nvars, z0_nvals, length: int, initializer: constants.TensorInitializer=constants.TensorInitializer.UNIFORM, transition=None, requires_grad=True):
         nvars = z0_nvars + length * 2 # z0 z0 z0 z0 z0 z0 z0 z1 x1 z2 x2 z3 x3 ... zl xl
         nvals = z0_nvals + [z0_nvars, sum(z0_nvals)] * length
-        transition = LogLinearLatentMarkovTransitionBase(z0_nvars, sum(z0_nvals), order=1)
+        transition = LogLinearLatentMarkovTransitionBase(z0_nvars, sum(z0_nvals), order=1, initializer=initializer) if transition is None else transition
 
         initial_factor = probability_tables.LogLinearProbabilityTable((z0_nvars,), [], initializer, requires_grad=requires_grad)
 
@@ -151,18 +156,19 @@ class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterminist
 
     def fix_variables(self, observation: dict[int, int]):
         # this overrides the default fix variables that turns everything into potential tables which will not support the bayesnet interface anymore
-        model = FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmission(self.z0_nvars, self.z0_nvals, self.length, constants.TensorInitializer.CONSTANT, requires_grad=self.__requires_grad)
+        model = FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmission(self.z0_nvars, self.z0_nvals, self.length, transition=self.transition, requires_grad=self.__requires_grad)
+        # model.transition = self.transition
         fv, ff = self.get_conditional_factors(observation)
         model._factor_variables, model._factor_functions = fv, nn.ModuleList(ff) # type:ignore
         return model
 
 class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.FactorGraph, pgm.BayesianNetwork):
 
-    def __init__(self, z0_nvars: int, z0_nvals: list[int], length: int, initializer: constants.TensorInitializer, noise=constants.DiscreteNoise.UNIFORM, separate_noise_distribution_per_state=True, mixture_ratio=(4.0,1.0), requires_grad=True):
+    def __init__(self, z0_nvars: int, z0_nvals: list[int], length: int, initializer: constants.TensorInitializer=constants.TensorInitializer.UNIFORM, transition=None, noise=constants.DiscreteNoise.UNIFORM, separate_noise_distribution_per_state=True, mixture_ratio=(4.0,1.0), requires_grad=True):
         nvars = z0_nvars + length * 5 # z0 z0 z0 z0 z0 z0 z0 z1 z1' z1s z1o x1 ... zl zl' zls zlo xl
         nvals = z0_nvals + [z0_nvars, z0_nvars, 2, z0_nvars, sum(z0_nvals)] * length
 
-        transition = LogLinearLatentMarkovTransitionBase(z0_nvars, sum(z0_nvals), order=1)
+        transition = LogLinearLatentMarkovTransitionBase(z0_nvars, sum(z0_nvals), order=1, initializer=initializer) if transition is None else transition
         initial_factor = probability_tables.LogLinearProbabilityTable((z0_nvars,), [], initializer, requires_grad=requires_grad)
 
         factor_variables : list[tuple[int, ...]] = [(z0_nvars,)]
@@ -178,7 +184,7 @@ class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterminist
                 noise_distribution = probability_tables.LogLinearProbabilityTable((z0_nvars,), [], constants.TensorInitializer.CONSTANT)
             else:
                 raise NotImplementedError()
-        noise_switch = probability_tables.LogLinearProbabilityTable((2,), [], nn.Parameter(torch.tensor(mixture_ratio).log()))
+        noise_switch = probability_tables.LogLinearProbabilityTable((2,), [], nn.Parameter(torch.tensor(mixture_ratio).log(), requires_grad=False))
 
         for i in range(length):
             # add the noisy z', possibly depending on z
@@ -210,7 +216,7 @@ class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterminist
 
     def fix_variables(self, observation: dict[int, int]):
         # this overrides the default fix variables that turns everything into potential tables which will not support the bayesnet interface anymore
-        model = FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(self.z0_nvars, self.z0_nvals, self.length, constants.TensorInitializer.CONSTANT, noise=self.noise, separate_noise_distribution_per_state=self.separate_noise_distribution_per_state, requires_grad=self.__requires_grad)
+        model = FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(self.z0_nvars, self.z0_nvals, self.length, transition=self.transition, noise=self.noise, separate_noise_distribution_per_state=self.separate_noise_distribution_per_state, requires_grad=self.__requires_grad)
         fv, ff = self.get_conditional_factors(observation)
         model._factor_variables, model._factor_functions = fv, nn.ModuleList(ff) # type:ignore
         return model

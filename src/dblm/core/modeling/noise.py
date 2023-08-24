@@ -13,7 +13,7 @@ class NoisyMixture(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.Fact
         factor_variables:list[tuple[int,...]] = [None] * (nvars * 3) #type:ignore
         factor_functions:list[pgm.ProbabilityTable] = [None] * (nvars * 3) # type:ignore
 
-        noise_switch = probability_tables.LogLinearProbabilityTable((2,), [], nn.Parameter(torch.tensor(mixture_ratio).log()))
+        noise_switch = probability_tables.LogLinearProbabilityTable((2,), [], nn.Parameter(torch.tensor(mixture_ratio).log(), requires_grad=False))
 
         for var in range(nvars):
             # add noise (noise is currently independent of the true value of the variable)
