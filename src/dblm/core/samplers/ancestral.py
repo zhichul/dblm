@@ -40,7 +40,7 @@ class AncestralSamplerWithPotentialTables(sampler.Sampler):
                 children = local_children[i]
                 variables = local_variables[i]
                 factor: pgm.PotentialTable = local_factors[i] # type: ignore
-                cpt = factor.fix_variables({variables.index(p): assignment[p] for p in parents}).renormalize() # type:ignore
+                cpt = factor.condition_on({variables.index(p): assignment[p] for p in parents}).renormalize() # type:ignore
                 sample = self.tabular_sampler.sample(1, cpt)
                 assert sample.nelement() == len(children)
                 for child, value in zip(children, sample.reshape(-1).tolist()):

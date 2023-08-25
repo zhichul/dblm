@@ -16,11 +16,11 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
     def __init__(self, nvars: int,
                  nvals: list[int],
                  factor_variables: list[tuple[int]],
-                 factor_functions: list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | pgm.PotentialTable]) -> None:
+                 factor_functions: list[pgm.PotentialTable]) -> None:
         """factor_functions is required to be a subclass of both nn.Module too."""
         super().__init__()
-        self._nvars = nvars
-        self._nvals = nvals
+        self._nvars = nvars # _nvars must be set for MultivariateFunction
+        self._nvals = nvals # _nvals must be set for MultivariateFunction
         self._factor_variables = factor_variables
         self._factor_functions = nn.ModuleList(factor_functions) # type: ignore
         self._graph = graph.FactorGraph(nvars, len(factor_functions))
@@ -31,104 +31,75 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         self._partition_function_cache = None
         self._log_partition_function_cache = None
 
+
     # ProbabilisticGraphicalModel
     def graph(self):
         return self._graph
 
     def to_probability_table(self) -> pgm.ProbabilityTable:
-        return probability_tables.LogLinearProbabilityTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
+        self._factor_functions: Sequence[pgm.PotentialTable]
+        return probability_tables.LogLinearProbabilityTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions)
 
     def to_potential_table(self) -> pgm.PotentialTable:
-        return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
+        self._factor_functions: Sequence[pgm.PotentialTable]
+        return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions)
 
-    def fix_variables(self, observation: dict[int, int]) -> FactorGraph:
-        factor_variables, factor_functions = self.get_conditional_factors(observation)
-        return FactorGraph(self.nvars, self.nvals,factor_variables, factor_functions)
-
-    def get_conditional_factors(self, observation) -> tuple[list[tuple[int]], list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | pgm.PotentialTable]]:
-        # modify the factor graph to kill observed variables
-        factor_variables = list(self._factor_variables)
-        factor_functions = list(self._factor_functions)
-        for i in range(len(self._factor_variables)):
-            # convert to potential table
-            if not isinstance(factor_functions[i], pgm.PotentialTable):
-                factor_functions[i] = factor_functions[i].to_potential_table() # type:ignore
-            factor_vars = factor_variables[i]
-            new_factor_vars = []
-            # check for local observation and update factor var list / factor function
-            local_observation = dict()
-            for local_name, global_name in enumerate(factor_vars):
-                if global_name in observation:
-                    local_observation[local_name] = observation[global_name]
-                else:
-                    new_factor_vars.append(global_name)
-
-            if len(local_observation) > 0:
-                factor_variables[i] = tuple(new_factor_vars) # type:ignore overwrite with new factor var list
-                factor_functions[i] = factor_functions[i].fix_variables(local_observation) # type:ignore overwrite factor function
-        return factor_variables, factor_functions # type:ignore
-
-    # FactorGraph
+    # FactorGraphModel
     def factor_variables(self) -> list[tuple[int]]:
         return self._factor_variables
 
     def factor_functions(self) -> list[distribution.Distribution]:
         return self._factor_functions # type: ignore
 
-    # GloballyNormalizedDistribution
-    def unnormalized_likelihood_function(self, assignment):
-        u = 1
-        for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
-            factor_assignment = tuple(assignment[var] for var in factor_vars)
-            if isinstance(factor_function, distribution.GloballyNormalizedDistribution):
-                factor_potential = factor_function.unnormalized_likelihood_function(factor_assignment)
-            elif isinstance(factor_function, distribution.LocallyNormalizedDistribution):
-                factor_potential = factor_function.likelihood_function(factor_assignment)
-            elif isinstance(factor_function, pgm.PotentialTable):
-                factor_potential = factor_function.potential_value(factor_assignment)
-            else:
-                raise AssertionError(f"unexpected factor type: {type(factor_function)}")
-            u = u * factor_potential
-        return u
+    def conditional_factor_variables(self, observation: dict[int, int]) -> list[tuple[int]]:
+        return [tuple(var for var in factor_vars if var not in observation) for factor_vars in self._factor_variables]
 
-    def log_unnormalized_likelihood_function(self, assignment):
-        lu = 0
+    def conditional_factor_functions(self, observation: dict[int, int]) -> list[pgm.PotentialTable]:
+        new_factor_functions = []
+        for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
+            factor_function : pgm.PotentialTable
+            local_observation = {local_name: observation[global_name] for local_name, global_name in enumerate(factor_vars) if global_name in observation}
+            new_factor_functions.append(factor_function.condition_on(local_observation) if len(local_observation) > 0 else factor_function)
+        return new_factor_functions
+
+    # GloballyNormalizedDistribution
+    def unnormalized_likelihood_function(self, assignment: tuple[int,...]) -> torch.Tensor:
+        return self.log_unnormalized_likelihood_function(assignment).exp()
+
+    def log_unnormalized_likelihood_function(self, assignment: tuple[int,...]) -> torch.Tensor:
+        lu = torch.tensor(0.0)
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
             factor_assignment = tuple(assignment[var] for var in factor_vars)
-            if isinstance(factor_function, distribution.GloballyNormalizedDistribution):
-                factor_potential = factor_function.log_unnormalized_likelihood_function(factor_assignment)
-            elif isinstance(factor_function, distribution.LocallyNormalizedDistribution):
-                factor_potential = factor_function.log_likelihood_function(factor_assignment)
-            elif isinstance(factor_function, pgm.PotentialTable):
-                factor_potential = factor_function.log_potential_value(factor_assignment)
-            else:
-                raise AssertionError(f"unexpected factor type: {type(factor_function)}")
+            factor_potential = factor_function.log_potential_value(factor_assignment)
             lu = lu + factor_potential
         return lu
 
-    def partition_function(self, use_cache=False):
-        if self._partition_function_cache is None or not use_cache:
-            z = 0
-            for assignment in tqdm.tqdm(itertools.product(*[list(range(nval)) for nval in self._nvals])):
-                z = z * self.unnormalized_likelihood_function(assignment)
-            self._partition_function_cache = z
-        return self._partition_function_cache
+    def partition_function(self, use_cache=False) -> torch.Tensor:
+        return self.log_partition_function(use_cache=use_cache).exp()
 
-    def log_partition_function(self, use_cache=False):
+    def log_partition_function(self, use_cache=False) -> torch.Tensor:
+        # TODO: this is brute force, we should probably turn it into a giant matrix first and use matrix operations but that would blowup memory
         if self._log_partition_function_cache is None or not use_cache:
-            lz = 0
+            lz = torch.tensor(0.0)
             for assignment in tqdm.tqdm(itertools.product(*[list(range(nval)) for nval in self._nvals])):
                 lz = lz + self.log_unnormalized_likelihood_function(assignment)
+            self._log_partition_function_cache = lz
         return self._log_partition_function_cache
+
+    # Distribution
+    def condition_on(self, observation: dict[int, int]) -> FactorGraph:
+        factor_variables = self.conditional_factor_variables(observation)
+        factor_functions = self.conditional_factor_functions(observation)
+        return FactorGraph(self.nvars, self.nvals,factor_variables, factor_functions)
 
     # Self
     @staticmethod
-    def join(factor_graph_1, factor_graph_2, shared: dict[int, int]) -> FactorGraph:
+    def join(factor_graph_1: pgm.FactorGraphModel, factor_graph_2: pgm.FactorGraphModel, shared: dict[int, int]) -> FactorGraph:
         """Always shifts the indices of the second graph, so better to join from the right.
         `shared` is a dict from id in second graph to id in first.
         """
         # TODO: the shared argument is not friendly to a chain of joins since every join updates some indices.
-        if not (isinstance(factor_graph_1, FactorGraph) and isinstance(factor_graph_2, FactorGraph)):
+        if not (isinstance(factor_graph_1, pgm.FactorGraphModel) and isinstance(factor_graph_2, pgm.FactorGraphModel)):
             raise ValueError
         size_1 = factor_graph_1.nvars
         size_2 = factor_graph_2.nvars
@@ -149,7 +120,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
 
 class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.IncompleteLikelihoodMixin):
 
-    def __init__(self, nvars: int, nvals: list[int], factor_variables: list[tuple[int]], factor_functions: list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | pgm.PotentialTable], observable: list[tuple[int, int]]) -> None:
+    def __init__(self, nvars: int, nvals: list[int], factor_variables: list[tuple[int]], factor_functions: list[pgm.PotentialTable], observable: list[tuple[int, int]]) -> None:
         """`observable` is a list of pairs of which the first is the factor index, and the second is the variable index.
         Assumes that observable is sorted w.r.t. the factor index, and that the factor graph represents a autoregressive model,
         such that when computing p(x_i | prefix), the marginalization over x>i can be skipped (since an autoregressive model is
@@ -162,10 +133,10 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
         self.observable_variables = {v for _,v in observable}
         self.observable_variables_to_factors = {v:k for k,v in observable}
 
-    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]]):
+    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]]) -> torch.Tensor:
         return self.incomplete_log_likelihood_function(assignment).exp() # type:ignore
 
-    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]], iterations=10):
+    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]], iterations=10) -> torch.Tensor:
         """Assumes assignment is sorted according to the order of self.observable."""
         assignment = list(assignment)
         if dict(assignment).keys() != self.observable_variables:
@@ -185,14 +156,27 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
         return BPAutoregressiveIncompleteLikelihoodFactorGraph(fg.nvars, fg.nvals, fg.factor_variables(), fg.factor_functions(), observable) # type:ignore
 
 class AutoRegressiveBayesNetMixin:
-    """This class gives factor graphs that are really autoregressive bayes nets the bayes net interface.
-    Assumes whoever subclasses this implements pgm.FactorGraphModel
+    """This class gives factor graphs that are really autoregressive
+    bayes nets the bayes net interface. Assumes whoever subclasses
+    this implements pgm.FactorGraphModel, and that the factors are all
+    really LocallyNormalizedDistributions (and since FactorGraphModels
+    must have PotentialTables as factors, this together means these
+    factors must be ProbabilityTables), with the last varible being the
+    children. This means the number of factors should match the number of
+    variables in the model.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        for factor_function in self.factor_functions(): # type:ignore
+            if not isinstance(factor_function, pgm.ProbabilityTable):
+                raise ValueError(f"{type(factor_function)}")
+            if not factor_function.parent_indices() == tuple(range(factor_function.nvars-1)):
+                code.interact(local=locals())
+                raise ValueError(f"not a autoregressive factor {factor_function}")
+        # TODO: sortedness of the factors (w.r.t. the variable order) is not tested
 
-    # Bayes Net interface
+    # BayesianNetwork
     def local_distributions(self):
         return self.factor_functions() # type:ignore
 

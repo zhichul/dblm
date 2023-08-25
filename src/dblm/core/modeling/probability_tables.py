@@ -8,12 +8,38 @@ import torch
 
 from dblm.utils import safe_operations
 
+"""
+The implementations of the behavior of PotentialTable and ProbabilityTable is split to three units:
 
+1) A class that defines a .logits property, which is essentially the table itself.
+    LogLinearFeaturizedTable implements the computation of the logits using a single linear
+        layer with no bias, according to some feature function, which computes a different
+        value for each assignment of the variables.
+    LogLinearTable implements the .logts directly as a parameter tensor.
+
+2) A class that implements the conditionalization and marginalization behavior.
+    LogLinearTableInferenceMixin implements this by indexing and logsumexp respectively.
+
+3) A class that computes values of interest from the internal .logits properties to implement the
+    parts of PotentialTable or ProbabilityTable interfaces that return tables / values from the table.
+    LogLinearPotentialMixin implements the PotentialTable interface.
+    LogLinearProbabilityMixin implements the ProbabilityTable interface.
+
+They combine into three concrete types of tables:
+
+a) LogLinearPotentialTable, with direct parametrization of logits.
+    This class also has a joint_from_factors method that allows one to materialize into a table from factor-graph like representations, in that case
+    the sum of all the log factors form the logits rather than a direct parametrization.
+b) LogLinearProbabilityTable, with direct parametrization of logits.
+    This class also has a joint_from_factors method that allows one to materialize into a table from factor-graph like representations, in that case
+    the sum of all the log factors form the logits rather than a direct parametrization.
+c) LogLinearFeaturizedProbabilityTable, with indrect parametrization of logits through a linear function of features of assignments.
+"""
 class LogLinearFeaturizedTable(nn.Module):
 
     def __init__(self, size, featurizer: featurizer.Featurizer, initializer: constants.TensorInitializer, requires_grad:bool=True) -> None:
         super().__init__()
-        self.assignments = nn.Parameter(torch.cartesian_prod(*(torch.arange(s) for s in size[:-1])), requires_grad=False)
+        self.assignments = nn.Parameter(torch.cartesian_prod(*(torch.arange(s) for s in size[:-1])), requires_grad=requires_grad)
         self.featurizer = featurizer
         self.layer = nn.Linear(self.featurizer.out_features, 1, bias=False)
         self._nvars = len(size)
@@ -57,20 +83,19 @@ class LogLinearTableInferenceMixin:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def fix_variables(self, observation: dict[int, int]):
+    def condition_on(self, observation: dict[int, int]):
         index = [slice(None,None,None)] * self.nvars # type:ignore
         for k,v in observation.items():
             index[k] = v # type:ignore
         logits = self.log_potential_table()[index] #type:ignore
         return LogLinearPotentialTable(logits.size(), logits)
 
-    def marginalize_over(self, variables: tuple[int]):
+    def marginalize_over(self, variables: Sequence[int]):
         if len(variables) == 0:
             return self
         logits = self.log_potential_table() # type:ignore
         for var in sorted(variables, reverse=True):
             logits = safe_operations.logsumexp(logits, dim=var)
-        # logits = logits.logsumexp(dim=tuple(variables))
         return LogLinearPotentialTable(logits.size(), logits)
 
 class LogLinearPotentialMixin:
@@ -116,12 +141,18 @@ class LogLinearProbabilityMixin:
 
     def __init__(self, size, parents, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._parents = parents
-        self._children = [i for i in range(len(size)) if i not in parents]
+        self._parents = tuple(parents)
+        self._children = tuple(i for i in range(len(size)) if i not in parents)
         self._permute = self._parents + self._children
         self._reverse_permute = [self._permute.index(i) for i in range(len(size))] #TODO fixed this n^2 slowness
         self._probability_table_cache = None
         self._log_probability_table_cache = None
+
+    def parent_indices(self):
+        return self._parents
+
+    def child_indices(self):
+        return self._children
 
     def _permute_children_to_last_and_flatten(self):
         permuted_logits = self.logits.permute(*self._permute) # type:ignore
@@ -200,7 +231,7 @@ class LogLinearProbabilityMixin:
         topo_order = [0]
         return bayesian_networks.BayesianNetwork(nvars, nvals, factor_vars, parents, children, factor_functions, topo_order) # type:ignore
 
-    def fix_variables(self, observation: dict[int, int]):
+    def condition_on(self, observation: dict[int, int]):
         index = [slice(None,None,None)] * self.nvars # type:ignore
         for k,v in observation.items():
             index[k] = v # type:ignore

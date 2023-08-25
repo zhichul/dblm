@@ -5,7 +5,15 @@ import torch.nn as nn
 import torch
 
 class NoisyMixture(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.FactorGraph, pgm.BayesianNetwork):
+    """
+    A noisy channel where each variable is mixed (via a shared coefficient determined by the mixture_ratio argument)
+    with the uniform discrete distribution.
 
+    Variable orders are [Orginal vars, Noise vars, Switch vars, Output vars].
+    Noise vars are uniformly distributed.
+    Switch vars independently follow a binary distribution with mixture ratio specifying the bias.
+    Output vars is determined deterministically using a SwitchingTable connected to both Noise, Original, and Switch variables.
+    """
     def __init__(self, nvars:int, nvals:list[int], noise=constants.DiscreteNoise.UNIFORM, mixture_ratio=(4.0,1.0)) -> None:
         self._nvars = nvars * 4 # nvars, nvars noise, nvars switch, nvars out
         self._nvals = nvals + nvals + [2] * nvars + nvals

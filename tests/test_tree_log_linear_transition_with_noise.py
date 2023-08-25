@@ -147,7 +147,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                                                                                 0,2,0,0,1)).item(), 3)
         undirected_normalized_model = factor_graphs.FactorGraph.join(self.pgmz0.to_probability_table().to_factor_graph_model(), self.pgmz0_noise, shared={0:0,1:1,2:2})
         undirected_normalized_model = factor_graphs.FactorGraph.join(undirected_normalized_model, self.pgmztxt, shared={0:9,1:10,2:11})
-        self.assertAlmostEqual(reference_log_likelihood, undirected_normalized_model.fix_variables({16:5,21:1,26:6,31:5,36:1}).log_unnormalized_likelihood_function((1,3,0, # z0
+        self.assertAlmostEqual(reference_log_likelihood, undirected_normalized_model.condition_on({16:5,21:1,26:6,31:5,36:1}).log_unnormalized_likelihood_function((1,3,0, # z0
                                                                                                 0,0,0, # noise
                                                                                                 0,0,0, # switch
                                                                                                 1,3,0, # output

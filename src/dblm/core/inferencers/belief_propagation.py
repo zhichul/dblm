@@ -23,7 +23,8 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
     def inference(self, model: pgm.FactorGraphModel, observation: dict[int, int], query: list[int], iterations=10, return_messages=False, renormalize=True):
         if any(query_var in observation for query_var in query):
             raise ValueError("query is part of observation, did you have a typo?")
-        factor_variables, factor_functions = model.get_conditional_factors(observation)
+        factor_variables = model.conditional_factor_variables(observation)
+        factor_functions = model.conditional_factor_functions(observation)
         factor_graph: graph.FactorGraph = model.graph()
         messages_to_factors = [None] * factor_graph.num_edges
         messages_to_variables = [None] * factor_graph.num_edges

@@ -76,7 +76,7 @@ class TestTreeLogLinearTransition(unittest.TestCase):
         self.assertAlmostEqual(reference_log_likelihood, directed_model.log_likelihood_function((1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1)).item(), 3)
         # turn z0 into table first, then the resulting factor graph is happens to be locally normalized
         undirected_normalized_model = factor_graphs.FactorGraph.join(self.pgmz0.to_probability_table().to_factor_graph_model(), self.pgmztxt, shared={0:0,1:1,2:2})
-        self.assertAlmostEqual(reference_log_likelihood, undirected_normalized_model.fix_variables({4:5,6:1,8:6,10:5,12:1}).log_unnormalized_likelihood_function((1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1)).item(), 3) # type:ignore
+        self.assertAlmostEqual(reference_log_likelihood, undirected_normalized_model.condition_on({4:5,6:1,8:6,10:5,12:1}).log_unnormalized_likelihood_function((1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1)).item(), 3) # type:ignore
         self.assertAlmostEqual(reference_log_likelihood, factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(self.model, [(3,4),(5,6),(7,8),(9,10),(11,12)]).incomplete_log_likelihood_function([(4,5),(6,1),(8,6),(10,5),(12,1)]).item(), 3)
 
     def test_inference(self):

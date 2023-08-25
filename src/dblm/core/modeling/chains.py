@@ -1,15 +1,15 @@
-import json
-import math
-import os
-
-import torch
+from __future__ import annotations
 from dblm.core.interfaces import pgm
 from dblm.core.modeling import factor_graphs, probability_tables
 from dblm.core.modeling import constants
 from dblm.core import graph
 import torch.nn as nn
+import torch
+import json
+import math
+import os
 
-class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
+class FixedLengthDirectedChain(nn.Module, pgm.FactorGraphModel):
     #TODO this is actully not locally normalized due to the last factor so is technically not a BayesianNetwork
 
     def __init__(self, nvars: int, nvals: int, initializer: constants.TensorInitializer, chain=None, requires_grad=True) -> None: # type: ignore
@@ -49,23 +49,34 @@ class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
     def to_factor_graph_model(self) -> pgm.FactorGraphModel:
         return factor_graphs.FactorGraph(self._nvars, self._nvals, self._factor_variables, self._factor_functions) # type: ignore
 
-    def fix_variables(self, observation):
+
+    # FactorGraphModel
+    def factor_functions(self):
         raise NotImplementedError()
 
-    # BayesianNetwork
-    def local_distributions(self):
+    def factor_variables(self):
         raise NotImplementedError()
 
-    def local_variables(self):
+    def partition_function(self) -> torch.Tensor:
         raise NotImplementedError()
 
-    def local_parents(self):
+    def log_partition_function(self) -> torch.Tensor:
         raise NotImplementedError()
 
-    def local_children(self):
+    def conditional_factor_variables(self, observation) -> list[tuple[int,...]]:
         raise NotImplementedError()
 
-    def topological_order(self):
+    def conditional_factor_functions(self) -> list[pgm.PotentialTable]:
+        raise NotImplementedError()
+
+    # GloballyNormalizedDistribution
+    def condition_on(self, observation):
+        raise NotImplementedError()
+
+    def unnormalized_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+        raise NotImplementedError()
+
+    def log_unnormalized_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
     # Self
@@ -93,13 +104,6 @@ class FixedLengthDirectedChain(nn.Module, pgm.BayesianNetwork):
         for factor_fn, table in zip(fc._factor_functions, factors_dict[constants.FACTOR_FUNCTIONS]):
             factor_fn.logits.data = torch.tensor(table)
         return fc
-
-    # LocallyNormalizedDistribution
-    def likelihood_function(self, assignment):
-        raise NotImplementedError()
-
-    def log_likelihood_function(self, assignment):
-        raise NotImplementedError()
 
 if __name__ == "__main__":
     chain = FixedLengthDirectedChain(2, 3, constants.TensorInitializer.CONSTANT)

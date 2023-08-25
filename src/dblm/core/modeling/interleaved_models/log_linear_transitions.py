@@ -54,7 +54,7 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
         self._x_indices_set = set(self._x_indices)
         self._map_to_non_x = {j:i for i, j in enumerate([i for i in range(self._nvars) if i not in self._x_indices_set])}
 
-    def fix_variables(self, observation: dict[int, int]):
+    def condition_on(self, observation: dict[int, int]):
         if not set(observation.keys()).issuperset(self._x_indices_set):
             print(observation, self._x_indices, list(range(self.nvars)))
             raise NotImplementedError("For efficiency, we only allow LogLinearLatentMarkovTransition fully conditioned on X")
@@ -63,7 +63,7 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
             return o
         else:
             sub_observation = {self._map_to_non_x[k]:v for k,v in observation.items() if k not in self._x_indices_set}
-            return o.fix_variables(sub_observation)
+            return o.condition_on(sub_observation)
 
     def potential_table(self) -> torch.Tensor:
         raise self.error
@@ -72,10 +72,10 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
         raise self.error
 
     def potential_value(self, assignment) -> torch.Tensor:
-        return self.fix_variables(dict(enumerate(assignment))).potential_table().reshape(-1).item() # type:ignore
+        return self.condition_on(dict(enumerate(assignment))).potential_table().reshape(-1).item() # type:ignore
 
     def log_potential_value(self, assignment) -> torch.Tensor:
-        return self.fix_variables(dict(enumerate(assignment))).log_potential_table().reshape(-1).item() # type:ignore
+        return self.condition_on(dict(enumerate(assignment))).log_potential_table().reshape(-1).item() # type:ignore
 
     def marginalize_over(self, variables):
         raise self.error
@@ -93,11 +93,16 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
         raise self.error
 
     def log_likelihood_function(self, assignment):
-        return self.fix_variables(dict(enumerate(assignment))).log_potential_table().reshape(-1).item() # type:ignore this fixation will first create a probability table, then get the assignment's probability, represented as a potential value
+        return self.condition_on(dict(enumerate(assignment))).log_potential_table().reshape(-1).item() # type:ignore this fixation will first create a probability table, then get the assignment's probability, represented as a potential value
 
     def likelihood_function(self, assignment):
         raise self.log_likelihood_function(assignment).exp() # type:ignore
 
+    def parent_indices(self):
+        return tuple(range(self.nvars - 1))
+
+    def child_indices(self):
+        return (self.nvars - 1,)
 
 class LogLinearLatentMarkovTransition(probability_tables.LogLinearProbabilityMixin, probability_tables.LogLinearTableInferenceMixin, nn.Module, pgm.ProbabilityTable, pgm.PotentialTable):
 
@@ -148,19 +153,26 @@ class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterminist
     def local_variables(self):
         return self._factor_variables
 
-    def local_parents(self):
+    def local_parents(self) -> list[tuple[int,...]]:
         return [vars[:-1] for vars in self._factor_variables]
 
-    def local_children(self):
+    def local_children(self) -> list[tuple[int,...]]:
         return [vars[-1:] for vars in self._factor_variables]
 
-    def fix_variables(self, observation: dict[int, int]):
+    def condition_on(self, observation: dict[int, int]):
         # this overrides the default fix variables that turns everything into potential tables which will not support the bayesnet interface anymore
         model = FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmission(self.z0_nvars, self.z0_nvals, self.length, transition=self.transition, requires_grad=self.__requires_grad)
         # model.transition = self.transition
-        fv, ff = self.get_conditional_factors(observation)
+        fv = self.conditional_factor_variables(observation)
+        ff = self.conditional_factor_functions(observation)
         model._factor_variables, model._factor_functions = fv, nn.ModuleList(ff) # type:ignore
         return model
+
+    def parent_indices(self) -> tuple[int,...]:
+        raise NotImplementedError()
+
+    def child_indices(self) -> tuple[int,...]:
+        raise NotImplementedError()
 
 class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.FactorGraph, pgm.BayesianNetwork):
 
@@ -214,10 +226,11 @@ class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterminist
         self.separate_noise_distribution_per_state = separate_noise_distribution_per_state
         self.__requires_grad = requires_grad
 
-    def fix_variables(self, observation: dict[int, int]):
+    def condition_on(self, observation: dict[int, int]):
         # this overrides the default fix variables that turns everything into potential tables which will not support the bayesnet interface anymore
         model = FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(self.z0_nvars, self.z0_nvals, self.length, transition=self.transition, noise=self.noise, separate_noise_distribution_per_state=self.separate_noise_distribution_per_state, requires_grad=self.__requires_grad)
-        fv, ff = self.get_conditional_factors(observation)
+        fv = self.conditional_factor_variables(observation)
+        ff = self.conditional_factor_functions(observation)
         model._factor_variables, model._factor_functions = fv, nn.ModuleList(ff) # type:ignore
         return model
 

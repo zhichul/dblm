@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import torch
-from dblm.core.interfaces import distribution, pgm
-from dblm.core.interfaces.pgm import FactorGraphModel, ProbabilityTable
+from dblm.core.interfaces import pgm
 from dblm.core.modeling import factor_graphs, probability_tables, utils
 
 import torch.nn as nn
@@ -13,10 +12,10 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
 
     def __init__(self, nvars: int,
                  nvals: list[int],
-                 local_variables: list[tuple[int]],
-                 local_parents: list[tuple[int]],
-                 local_children: list[tuple[int]],
-                 local_functions: list[distribution.LocallyNormalizedDistribution | distribution.GloballyNormalizedDistribution | pgm.ProbabilityTable],
+                 local_variables: list[tuple[int,...]],
+                 local_parents: list[tuple[int,...]],
+                 local_children: list[tuple[int,...]],
+                 local_functions: list[pgm.ProbabilityTable],
                  topological_order: list[int]):
         super().__init__()
         self._factor_variables = local_variables
@@ -27,12 +26,15 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
         self._nvals = nvals
         self._topological_order = topological_order
 
-    # bayesnet
-    def topological_order(self):
+    # BayesianNetwork
+    def topological_order(self) -> list[int]:
         return self._topological_order
 
-    def local_distributions(self):
-        return self._factor_functions
+    def local_variables(self) -> list[tuple[int,...]]:
+        return self._factor_variables
+
+    def local_distributions(self) -> list[pgm.ProbabilityTable]:
+        return self._factor_functions # type:ignore
 
     def local_parents(self):
         return self._parents
@@ -40,26 +42,34 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
     def local_children(self):
         return self._children
 
-    def local_variables(self):
-        return self._factor_variables
-
-    # pgm
+    # ProbabilisticGraphicalModel
     def graph(self):
+        # TODO: implement a directed graph in dblm.core.graph and use it to represent a bayes net
         raise NotImplementedError()
 
-    def to_factor_graph_model(self) -> FactorGraphModel:
+    def to_factor_graph_model(self) -> pgm.FactorGraphModel:
         return factor_graphs.FactorGraph(self.nvars, self.nvals, self._factor_variables, self._factor_functions) # type:ignore
 
-    def to_probability_table(self) -> ProbabilityTable:
-        return probability_tables.LogLinearProbabilityTable.joint_from_factors(self.nvars, self.nvals, self._factor_variables, self._factor_functions) #type:ignore
+    def to_probability_table(self) -> pgm.ProbabilityTable:
+        return probability_tables.LogLinearProbabilityTable.joint_from_factors(self.nvars, self.nvals, self._factor_variables, self._factor_functions) # type:ignore
 
-    def to_potential_table(self) -> ProbabilityTable:
-        return probability_tables.LogLinearPotentialTable.joint_from_factors(self.nvars, self.nvals, self._factor_variables, self._factor_functions) #type:ignore
+    def to_potential_table(self) -> pgm.PotentialTable:
+        return probability_tables.LogLinearPotentialTable.joint_from_factors(self.nvars, self.nvals, self._factor_variables, self._factor_functions) # type:ignore
 
-    def fix_variables(self, observation):
+    def condition_on(self, observation):
         raise NotImplementedError()
 
-    # locally normalized distribution
+    # LocallyNormalizedDistribution
+    def parent_indices(self) -> tuple[int, ...]:
+        children_indices = set(self.child_indices())
+        return tuple(i for i in range(self.nvars) if i not in children_indices)
+
+    def child_indices(self) -> tuple[int, ...]:
+        children_indices = set()
+        for children in self.local_children():
+            children_indices.update(children)
+        return tuple(children_indices)
+
     def likelihood_function(self, assignment):
         return self.log_likelihood_function(assignment).exp()
 
