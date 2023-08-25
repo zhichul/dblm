@@ -171,7 +171,7 @@ class AutoRegressiveBayesNetMixin:
         for factor_function in self.factor_functions(): # type:ignore
             if not isinstance(factor_function, pgm.ProbabilityTable):
                 raise ValueError(f"{type(factor_function)}")
-            if not factor_function.parent_indices() == tuple(range(factor_function.nvars-1)):
+            if factor_function.parent_indices() != tuple(range(factor_function.nvars - 1)):
                 code.interact(local=locals())
                 raise ValueError(f"not a autoregressive factor {factor_function}")
         # TODO: sortedness of the factors (w.r.t. the variable order) is not tested

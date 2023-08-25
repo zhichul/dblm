@@ -1,4 +1,3 @@
-import code
 from dblm.core.interfaces import sampler
 from dblm.core.interfaces import pgm
 from dblm.core.samplers import tabular

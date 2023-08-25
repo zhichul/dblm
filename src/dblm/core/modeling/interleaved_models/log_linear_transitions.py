@@ -1,11 +1,9 @@
 from __future__ import annotations
-import code
 import math
 
 from dblm.core.featurizers import x_term_frequency
 from dblm.core.inferencers import belief_propagation
 from dblm.core.interfaces import pgm
-from dblm.core.interfaces.pgm import FactorGraphModel, ProbabilityTable
 from dblm.core.modeling import bayesian_networks, constants, factor_graphs, markov_networks, probability_tables, switching_tables
 import torch.nn as nn
 import torch
