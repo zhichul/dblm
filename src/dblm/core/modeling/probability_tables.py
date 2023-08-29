@@ -196,14 +196,14 @@ class LogLinearPotentialTable(LogLinearPotentialMixin, LogLinearTableInferenceMi
 
 class LogLinearProbabilityMixin(LogLinearPotentialMixin):
 
-    def __init__(self, parents, *args, **kwargs) -> None:
+    def __init__(self, nvars, parents, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._parents = tuple(parents)
-        self._children = tuple(i for i in range(self.nvars) if i not in parents) # type:ignore
-        if len(parents) > self.nvars: # type:ignore
-            code.interact(local=locals())
+        self._children = tuple(i for i in range(nvars) if i not in parents) # type:ignore
+        if len(parents) > nvars: # type:ignore
+            raise ValueError(f"number of parents {parents} can't be larger than number of variables {nvars}")
         self._permute = self._parents + self._children
-        self._reverse_permute = [self._permute.index(i) for i in range(self.nvars)] #type:ignore TODO fixed this n^2 slowness
+        self._reverse_permute = [self._permute.index(i) for i in range(nvars)] #type:ignore TODO fixed this n^2 slowness
         self._probability_table_cache = None
         self._log_probability_table_cache = None
 
@@ -327,7 +327,7 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
 
 class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.ProbabilityTable):
     def __init__(self, size, parents: list[int], initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True, batch_dims=0) -> None:
-        super().__init__(parents, size, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
+        super().__init__(len(size) - batch_dims, parents, size, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
 
     @staticmethod
     def joint_from_factors(nvars: int, nvals: list[int], factor_variables: Sequence[tuple[int, ...]], factor_functions: Sequence[pgm.PotentialTable]):
@@ -356,8 +356,8 @@ class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferen
 
 class LogLinearFeaturizedProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearFeaturizedTable, pgm.ProbabilityTable):
 
-    def __init__(self, size, parents, feature_extractor, initializer, requires_grad=True) -> None:
-        super().__init__(size, parents, size, feature_extractor, initializer, requires_grad=requires_grad)
+    def __init__(self, size, parents, feature_extractor, initializer, requires_grad=True, batch_dims=0) -> None:
+        super().__init__(len(size) - batch_dims, parents, size, feature_extractor, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
 
 if __name__ == "__main__":
     table = LogLinearPotentialTable((3,4,5,6), constants.TensorInitializer.CONSTANT)

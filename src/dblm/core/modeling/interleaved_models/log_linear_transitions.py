@@ -108,11 +108,9 @@ class LogLinearLatentMarkovTransition(probability_tables.LogLinearProbabilityMix
 
     def __init__(self, base: LogLinearLatentMarkovTransitionBase, size, parents, observation_list) -> None:
         self.call_super_init = True
+        super().__init__(len(size), parents)
         self._nvars = len(size)
         self._nvals = list(size)
-        self._batch_size = tuple()
-        self._batch_dims = 0
-        super().__init__(parents)
         self.base = base
         self.observation_list = observation_list
 
