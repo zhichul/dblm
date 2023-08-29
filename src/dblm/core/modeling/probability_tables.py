@@ -1,4 +1,5 @@
 from __future__ import annotations
+from functools import reduce
 from typing import Sequence
 from dblm.core.interfaces import pgm, featurizer
 from dblm.core.modeling import factor_graphs, bayesian_networks
@@ -38,12 +39,11 @@ c) LogLinearFeaturizedProbabilityTable, with indrect parametrization of logits t
 class LogLinearFeaturizedTable(nn.Module):
 
     def __init__(self, size, featurizer: featurizer.Featurizer, initializer: constants.TensorInitializer, requires_grad:bool=True) -> None:
+        self.call_super_init = True
         super().__init__()
-        self.assignments = nn.Parameter(torch.cartesian_prod(*(torch.arange(s) for s in size[:-1])), requires_grad=requires_grad)
+        self.assignments = nn.Parameter(torch.cartesian_prod(*(torch.arange(s) for s in size)), requires_grad=requires_grad)
         self.featurizer = featurizer
         self.layer = nn.Linear(self.featurizer.out_features, 1, bias=False)
-        self._nvars = len(size)
-        self._nvals = list(size)
         if isinstance(initializer, constants.TensorInitializer):
             if initializer == constants.TensorInitializer.UNIFORM:
                 nn.init.uniform_(self.layer.weight, 0, 0.1)
@@ -52,29 +52,47 @@ class LogLinearFeaturizedTable(nn.Module):
         else:
             raise ValueError("Only TensorInitializer is allowed as initializer.")
 
+        # batch dimensions are always assumed to be at the front
+        self._nvars = len(size)
+        self._nvals = list(size)
+        self._batch_dims = 0
+        self._batch_size = tuple()
+
     @property
     def logits(self):
         features = self.featurizer(self.assignments)
-        return self.layer(features).reshape(*self._nvals)
+        return self.layer(features).reshape(*self._nvals).expand((*self._batch_size, *self._nvals))
 
 class LogLinearTable(nn.Module):
 
-    def __init__(self, size, initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True) -> None:
+    def __init__(self, size, initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True, batch_dims=0) -> None:
         """If initializer is a tensor, requires_grad is ignored."""
+        self.call_super_init = True
         super().__init__()
         # Store as ndarray
+        if isinstance(initializer, constants.TensorInitializer) and batch_dims != 0:
+            raise ValueError("not allowed to initialize LogLinearTable with batch_dims > 0")
         if initializer is constants.TensorInitializer.CONSTANT:
-            self.logits = nn.Parameter(torch.zeros(size), requires_grad=requires_grad)
+            self._logits = nn.Parameter(torch.zeros(size), requires_grad=requires_grad)
         elif initializer is constants.TensorInitializer.UNIFORM:
-            self.logits = nn.Parameter(torch.rand(size), requires_grad=requires_grad)
+            self._logits = nn.Parameter(torch.rand(size), requires_grad=requires_grad)
         elif isinstance(initializer, (nn.Parameter, torch.Tensor)):
             if list(initializer.size()) != list(size):
                 raise ValueError(f"Expected initializer size ({initializer.size()}) to match decalred size ({size})")
-            self.logits = initializer
+            self._logits = initializer
         else:
             raise NotImplementedError()
-        self._nvars = len(self.logits.size())
-        self._nvals = list(self.logits.size())
+
+        # batch dimensions are always assumed to be at the front
+        self._nvars = len(self._logits.size()) - batch_dims
+        self._nvals = list(self._logits.size())[batch_dims:]
+        self._batch_dims = batch_dims
+        self._batch_size = tuple(size)[:batch_dims]
+
+    @property
+    def logits(self):
+        return self._logits.expand((*self._batch_size, *self._nvals))
+
 
 class LogLinearTableInferenceMixin:
     """This mixin assumes the inheriter implements interfaces of pgm.ProbabilisticGraphicalModel and pgm.PotentialTable.
@@ -83,20 +101,26 @@ class LogLinearTableInferenceMixin:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def condition_on(self, observation: dict[int, int]):
-        index = [slice(None,None,None)] * self.nvars # type:ignore
+    def condition_on(self, observation: dict[int, int] |  dict[int, torch.Tensor]):
+        """When supplied a tensor of assignments for the observations,
+        returns a LogLinearPotentialTable with ADDITIONAL batch dimensions corresponding
+        to the dimensions of the observations. This method "unsqueezes" new batch dimensions.
+        """
+        index = [slice(None,None,None)] * (self.batch_dims + self.nvars) # type:ignore
         for k,v in observation.items():
-            index[k] = v # type:ignore
-        logits = self.log_potential_table()[index] #type:ignore
-        return LogLinearPotentialTable(logits.size(), logits)
+            index[self.batch_dims + k] = v # type:ignore
+        logits = self.log_potential_table()[tuple(index)] #type:ignore
+        new_batch_dims = 0 if isinstance(next(observation.values().__iter__()), int) else len(next(observation.values().__iter__()).size()) # type:ignore
+        return LogLinearPotentialTable(logits.size(), logits, batch_dims=self.batch_dims + new_batch_dims) # type:ignore
 
     def marginalize_over(self, variables: Sequence[int]):
+        """This method "squeezes" away variables dimensions."""
         if len(variables) == 0:
             return self
         logits = self.log_potential_table() # type:ignore
         for var in sorted(variables, reverse=True):
-            logits = safe_operations.logsumexp(logits, dim=var)
-        return LogLinearPotentialTable(logits.size(), logits)
+            logits = safe_operations.logsumexp(logits, dim=self.batch_dims + var) # type:ignore
+        return LogLinearPotentialTable(logits.size(), logits, batch_dims=self.batch_dims) # type:ignore
 
 class LogLinearPotentialMixin:
 
@@ -106,19 +130,31 @@ class LogLinearPotentialMixin:
     def log_potential_table(self) -> torch.Tensor:
         return self.logits # type:ignore
 
+    def _index(self, assignment, table_fn):
+        if len(assignment) > 0 and isinstance(assignment[0], torch.Tensor):
+            assignment = tuple(a.view(-1) for a in assignment) # type:ignore
+            batch_size: tuple[int,...] = self.batch_size # type:ignore
+            batch_total = reduce(int.__mul__, batch_size, 1)
+            if batch_total == 1:
+                raise ValueError("If batch_total = 1 use integer indices not tensor")
+            else:
+                return table_fn().view(-1, *self.nvals)[(list(range(batch_total)),*assignment)].reshape(*batch_size)# type:ignore
+        else:
+            return table_fn()[assignment]
+
     def potential_value(self, assignment):
-        return self.potential_table()[assignment]
+        return self._index(assignment, self.potential_table)
 
     def log_potential_value(self, assignment):
-        return self.log_potential_table()[assignment]
+        return self._index(assignment, self.log_potential_table)
 
     def renormalize(self):
-        return LogLinearProbabilityTable(self.logits.size(), [], self.logits) # type:ignore
+        return LogLinearProbabilityTable(self.logits.size(), [], self.logits, batch_dims=self.batch_dims) # type:ignore
 
 class LogLinearPotentialTable(LogLinearPotentialMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.PotentialTable):
 
     @staticmethod
-    def joint_from_factors(nvars: int, nvals: list[int], factor_variables: Sequence[tuple[int]], factor_functions: Sequence[pgm.PotentialTable]):
+    def joint_from_factors(nvars: int, nvals: list[int], factor_variables: Sequence[tuple[int, ...]], factor_functions: Sequence[pgm.PotentialTable]):
         """
         IMPORTANT: assumes the variables in the factor functions are in numerical order!
         e.g. if the set of variables range from v1 to v10, assumes the factor table
@@ -126,18 +162,25 @@ class LogLinearPotentialTable(LogLinearPotentialMixin, LogLinearTableInferenceMi
 
         The sizes of the factors must respect the declared sizes encoded by nvals.
         """
+        if any(factor_function.batch_size != factor_functions[0].batch_size for factor_function in factor_functions):
+            raise ValueError(f"Can only join PotentialTables with the same batch_size: {[factor_function.batch_size for factor_function in factor_functions]}")
         table = None
+        batch_dims = factor_functions[0].batch_dims
+        batch_size = factor_functions[0].batch_size
         for factor_vars, factor_fn in zip(factor_variables, factor_functions):
-            size = [1] * nvars
+            size = [1] * (nvars)
             local_factor = factor_fn.log_potential_table()
             for var in factor_vars:
                 size[var] = nvals[var]
-            local_factor = local_factor.reshape(*size)
+            local_factor = local_factor.reshape(*(*batch_size, *size))
             table = local_factor if table is None else table + local_factor
         assert table is not None
-        return LogLinearPotentialTable(nvals, table)
+        return LogLinearPotentialTable((*batch_size, *nvals), table, batch_dims=batch_dims)
 
-class LogLinearProbabilityMixin:
+    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> LogLinearPotentialTable:
+        return super().expand_batch_dimensions(batch_sizes) # type:ignore
+
+class LogLinearProbabilityMixin(LogLinearPotentialMixin):
 
     def __init__(self, size, parents, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -154,16 +197,24 @@ class LogLinearProbabilityMixin:
     def child_indices(self):
         return self._children
 
+    @property
+    def permutation(self):
+        return list(range(self.batch_dims)) + [self.batch_dims + i for i in self._permute] # type:ignore
+
+    @property
+    def reverse_permutation(self):
+        return list(range(self.batch_dims)) + [self.batch_dims + i for i in self._reverse_permute] # type:ignore
+
     def _permute_children_to_last_and_flatten(self):
-        permuted_logits = self.logits.permute(*self._permute) # type:ignore
+        permuted_logits = self.logits.permute(*(self.permutation)) # type:ignore
         permuted_size = permuted_logits.size()
-        flattened_size = permuted_size[:len(self._parents)] + torch.Size([-1])
+        flattened_size = permuted_size[:(self.batch_dims + len(self._parents))] + torch.Size([-1]) # type:ignore
         flattened_logits = permuted_logits.reshape(*flattened_size)
         return flattened_logits, permuted_size
 
     def _deflatten_and_permute_children_to_original(self, normalized_flattened_table, permuted_size):
         normalized_flattened_table = normalized_flattened_table.reshape(permuted_size)
-        normalized_flattened_table = normalized_flattened_table.permute(self._reverse_permute)
+        normalized_flattened_table = normalized_flattened_table.permute(self.reverse_permutation)
         return normalized_flattened_table
 
     def probability_table(self, use_cache=False) -> torch.Tensor:
@@ -189,10 +240,10 @@ class LogLinearProbabilityMixin:
         return self._log_probability_table_cache
 
     def likelihood_function(self, assignment):
-        return self.probability_table()[assignment]
+        return self._index(assignment, self.probability_table)
 
     def log_likelihood_function(self, assignment):
-        return self.log_probability_table()[assignment]
+        return self._index(assignment, self.log_probability_table)
 
     def potential_table(self) -> torch.Tensor:
         """IMPORTANT this returns a normalized table!"""
@@ -203,10 +254,10 @@ class LogLinearProbabilityMixin:
         return self.log_probability_table()
 
     def potential_value(self, assignment):
-        return self.potential_table()[assignment]
+        return self.likelihood_function(assignment)
 
     def log_potential_value(self, assignment):
-        return self.log_potential_table()[assignment]
+        return self.log_likelihood_function(assignment)
 
     def to_probability_table(self):
         return self
@@ -231,15 +282,16 @@ class LogLinearProbabilityMixin:
         topo_order = [0]
         return bayesian_networks.BayesianNetwork(nvars, nvals, factor_vars, parents, children, factor_functions, topo_order) # type:ignore
 
-    def condition_on(self, observation: dict[int, int]):
-        index = [slice(None,None,None)] * self.nvars # type:ignore
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]):
+        index = [slice(None,None,None)] * (self.batch_dims + self.nvars) # type:ignore
         for k,v in observation.items():
-            index[k] = v # type:ignore
+            index[self.batch_dims + k] = v # type:ignore
         logits = self.log_probability_table()[tuple(index)] #type:ignore
         children_set = set(self._children)
         parents_set = set(self._parents)
+        new_batch_dims = 0 if isinstance(next(observation.values().__iter__()), int) else len(next(observation.values().__iter__()).size()) # type:ignore
         if any(k in children_set for k in observation):
-            return LogLinearPotentialTable(logits.size(), logits)
+            return LogLinearPotentialTable(logits.size(), logits, batch_dims=self.batch_dims + new_batch_dims) # type:ignore
         else:
             new_parents = []
             new_par_index = 0
@@ -247,13 +299,19 @@ class LogLinearProbabilityMixin:
                 if i not in observation and i in parents_set:
                     new_parents.append(new_par_index)
                     new_par_index += 1
-            return LogLinearProbabilityTable(logits.size(), new_parents, logits)
+            return LogLinearProbabilityTable(logits.size(), new_parents, logits, batch_dims=self.batch_dims + new_batch_dims) # type:ignore
 
-class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.ProbabilityTable, pgm.PotentialTable):
-    def __init__(self, size, parents: list[int], initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True) -> None:
-        super().__init__(size, parents, size, initializer, requires_grad=requires_grad)
+    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> LogLinearProbabilityTable:
+        """This override is just to give the type checker some more hints."""
+        return super().expand_batch_dimensions(batch_sizes) # type:ignore
+
+
+class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.ProbabilityTable):
+    def __init__(self, size, parents: list[int], initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True, batch_dims=0) -> None:
+        super().__init__(size, parents, size, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
+
     @staticmethod
-    def joint_from_factors(nvars: int, nvals: list[int], factor_variables: Sequence[tuple[int]], factor_functions: Sequence[pgm.PotentialTable]):
+    def joint_from_factors(nvars: int, nvals: list[int], factor_variables: Sequence[tuple[int, ...]], factor_functions: Sequence[pgm.PotentialTable]):
         """
         IMPORTANT: assumes the variables in the factor functions are in numerical order!
         e.g. if the set of variables range from v1 to v10, assumes the factor table
@@ -261,19 +319,37 @@ class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferen
 
         The sizes of the factors must respect the declared sizes encoded by nvals.
         """
+        if any(factor_function.batch_size != factor_functions[0].batch_size for factor_function in factor_functions):
+            raise ValueError(f"Can only join PotentialTables with the same batch_size: {[factor_function.batch_size for factor_function in factor_functions]}")
+
         table = None
+        batch_dims = factor_functions[0].batch_dims
+        batch_size = factor_functions[0].batch_size
         for factor_vars, factor_fn in zip(factor_variables, factor_functions):
             size = [1] * nvars
             local_factor = factor_fn.log_potential_table()
             for var in factor_vars:
                 size[var] = nvals[var]
-            local_factor = local_factor.reshape(*size)
+            local_factor = local_factor.reshape(*(*batch_size, *size))
             table = local_factor if table is None else table + local_factor
         assert table is not None
-        return LogLinearProbabilityTable(nvals, [], table)
+        return LogLinearProbabilityTable(nvals, [], table, batch_dims=batch_dims)
 
-
-class LogLinearFeaturizedProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearFeaturizedTable, pgm.ProbabilityTable, pgm.PotentialTable):
+class LogLinearFeaturizedProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearFeaturizedTable, pgm.ProbabilityTable):
 
     def __init__(self, size, parents, feature_extractor, initializer, requires_grad=True) -> None:
         super().__init__(size, parents, size, feature_extractor, initializer, requires_grad=requires_grad)
+
+if __name__ == "__main__":
+    table = LogLinearPotentialTable((3,4,5,6), constants.TensorInitializer.CONSTANT)
+    print(table.batch_dims, table.batch_size, table.logits.size())
+    indices = torch.tensor([[0,1,2],[1,2,3]])
+    cpt = table.condition_on({i: indices[i] for i in range(indices.size(0))})
+    print(cpt.batch_dims, cpt.batch_size, cpt.logits.size())
+    print(cpt.log_potential_value((torch.tensor([2,3,4]),torch.tensor([3,4,5]))).size())
+    cpt = cpt.condition_on({0: torch.tensor([2,3])})
+    print(cpt.batch_dims, cpt.batch_size, cpt.logits.size())
+    print(cpt.log_potential_value((torch.tensor([[1,2,3],[3,4,5]]),)).size())
+    other_cpt = LogLinearPotentialTable((6,7), constants.TensorInitializer.CONSTANT, batch_dims=0).expand_batch_dimensions((3,2))
+    joint = LogLinearPotentialTable.joint_from_factors(2, [6,7], [(0,), (0,1)], [cpt, other_cpt])
+    print(joint.batch_dims, joint.batch_size, joint.logits.size())

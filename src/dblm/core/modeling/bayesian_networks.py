@@ -17,6 +17,7 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
                  local_children: list[tuple[int,...]],
                  local_functions: list[pgm.ProbabilityTable],
                  topological_order: list[int]):
+        self.call_super_init = True
         super().__init__()
         self._factor_variables = local_variables
         self._factor_functions = nn.ModuleList(local_functions) # type:ignore

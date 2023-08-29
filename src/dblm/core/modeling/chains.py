@@ -13,6 +13,7 @@ class FixedLengthDirectedChain(nn.Module, pgm.FactorGraphModel):
     #TODO this is actully not locally normalized due to the last factor so is technically not a BayesianNetwork
 
     def __init__(self, nvars: int, nvals: int, initializer: constants.TensorInitializer, chain=None, requires_grad=True) -> None: # type: ignore
+        self.call_super_init = True
         super().__init__()
         self._nvars = nvars
         self._nvals = [nvals] * nvars

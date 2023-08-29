@@ -15,6 +15,7 @@ from dblm.utils import seeding
 class LogLinearLatentMarkovTransitionBase(nn.Module):
 
     def __init__(self, nstate:int, vocab_size:int, order:int=1, initializer:constants.TensorInitializer=constants.TensorInitializer.UNIFORM) -> None:
+        self.call_super_init = True
         super().__init__()
         self.featurizer = x_term_frequency.XTermFrequency(vocab_size)
         self.vocab_size = vocab_size
@@ -43,6 +44,7 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
     error = NotImplementedError("This class is only a wrapper and cannot be evaluated. To evaluate first call fix_variables with assignments to all x's.")
 
     def __init__(self, base: LogLinearLatentMarkovTransitionBase, conditional_size, ntokens):
+        self.call_super_init = True
         super().__init__()
         self.base = base
         self.conditional_size = conditional_size
@@ -102,9 +104,10 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
     def child_indices(self):
         return (self.nvars - 1,)
 
-class LogLinearLatentMarkovTransition(probability_tables.LogLinearProbabilityMixin, probability_tables.LogLinearTableInferenceMixin, nn.Module, pgm.ProbabilityTable, pgm.PotentialTable):
+class LogLinearLatentMarkovTransition(probability_tables.LogLinearProbabilityMixin, probability_tables.LogLinearTableInferenceMixin, nn.Module, pgm.ProbabilityTable):
 
     def __init__(self, base: LogLinearLatentMarkovTransitionBase, size, parents, observation_list) -> None:
+        self.call_super_init = True
         super().__init__(size, parents)
         self._nvars = len(size)
         self._nvals = list(size)

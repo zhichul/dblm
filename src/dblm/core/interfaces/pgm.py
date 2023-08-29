@@ -1,5 +1,6 @@
 from __future__ import annotations
 import abc
+from typing import Sequence
 import torch
 from dblm.core.interfaces import distribution
 
@@ -10,7 +11,8 @@ Though the implementation doesn't prevent mutation of their fields.
 """
 class MultivariateFunction:
 
-    def __init__(self) -> None:
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self._nvars = 0
         self._nvals = []
 
@@ -102,7 +104,27 @@ class MarkovRandomField(ProbabilisticGraphicalModel, distribution.GloballyNormal
     def local_variables(self) -> list[tuple[int,...]]:
         ...
 
-class PotentialTable(MultivariateFunction, abc.ABC):
+class Batchable:
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._batch_dims: int = 0
+        self._batch_size: tuple[int,...] = tuple()
+
+    @property
+    def batch_dims(self) -> int:
+        return self._batch_dims # type:ignore
+
+    @property
+    def batch_size(self) -> tuple[int, ...]:
+        return self._batch_size # type:ignore
+
+    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> Batchable:
+        self._batch_size = batch_sizes + self._batch_size
+        self._batch_dims = len(batch_sizes) + self._batch_dims
+        return self
+
+class PotentialTable(Batchable, MultivariateFunction, abc.ABC):
 
     @abc.abstractmethod
     def potential_table(self) -> torch.Tensor:
@@ -124,11 +146,11 @@ class PotentialTable(MultivariateFunction, abc.ABC):
         return self
 
     @abc.abstractmethod
-    def condition_on(self, observation: dict[int, int]) -> PotentialTable:
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> PotentialTable:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def marginalize_over(self, variables) -> PotentialTable:
+    def marginalize_over(self, variables: Sequence[int]) -> PotentialTable:
         raise NotImplementedError()
 
     @abc.abstractmethod

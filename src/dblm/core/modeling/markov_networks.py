@@ -13,6 +13,7 @@ import torch
 class TreeMRF(nn.Module, pgm.MarkovRandomField):
 
     def __init__(self, nvars: int, nvals: int | list[int], initializer: constants.TensorInitializer, tree: graph.Graph=None, requires_grad=True) -> None: # type: ignore
+        self.call_super_init = True
         super().__init__()
         if isinstance(nvals, int):
             nvals = [nvals] * nvars

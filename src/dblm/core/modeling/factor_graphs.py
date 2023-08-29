@@ -1,6 +1,7 @@
 from __future__ import annotations
 import code
 import itertools
+import sys
 from typing import Sequence
 import torch
 
@@ -18,6 +19,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
                  factor_variables: list[tuple[int]],
                  factor_functions: list[pgm.PotentialTable]) -> None:
         """factor_functions is required to be a subclass of both nn.Module too."""
+        self.call_super_init = True
         super().__init__()
         self._nvars = nvars # _nvars must be set for MultivariateFunction
         self._nvals = nvals # _nvals must be set for MultivariateFunction
@@ -172,6 +174,8 @@ class AutoRegressiveBayesNetMixin:
             if not isinstance(factor_function, pgm.ProbabilityTable):
                 raise ValueError(f"{type(factor_function)}")
             if factor_function.parent_indices() != tuple(range(factor_function.nvars - 1)):
+                print(f"not a autoregressive factor {factor_function} "
+                      f"parents={factor_function.parent_indices()} nvars={factor_function.nvars}", file=sys.stderr)
                 code.interact(local=locals())
                 raise ValueError(f"not a autoregressive factor {factor_function}")
         # TODO: sortedness of the factors (w.r.t. the variable order) is not tested

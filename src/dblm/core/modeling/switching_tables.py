@@ -6,7 +6,7 @@ import torch
 import math
 
 
-class SwitchingTable(probability_tables.LogLinearTableInferenceMixin, probability_tables.LogLinearProbabilityMixin, nn.Module, pgm.ProbabilityTable):
+class SwitchingTable(probability_tables.LogLinearProbabilityMixin, probability_tables.LogLinearTableInferenceMixin, nn.Module, pgm.ProbabilityTable):
     """This describes a potential table over nvars variables
     each with nvals[i] values, plus a single switch, and
     a output variable that is conceptually a pair (selected_of_nvar, val_of_selected)
@@ -17,10 +17,12 @@ class SwitchingTable(probability_tables.LogLinearTableInferenceMixin, probabilit
     """
 
     def __init__(self, nvars: int, nvals: list[int], mode:constants.SwitchingMode = constants.SwitchingMode.VARPAIRVAL) -> None:
+        self.call_super_init = True
         if mode == constants.SwitchingMode.VARPAIRVAL:
+            _nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
+            super().__init__(_nvals, list(range(nvars + 1))) # size and parents
             self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
-            self._nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
-            super().__init__(self._nvals, list(range(nvars + 1))) # size and parents
+            self._nvals = _nvals
             logits = torch.zeros(self._nvals).fill_(-math.inf)
             colon = slice(None, None, None)
             for sw in range(nvars):
@@ -31,9 +33,10 @@ class SwitchingTable(probability_tables.LogLinearTableInferenceMixin, probabilit
         elif mode == constants.SwitchingMode.MIXTURE:
             if not len(set(nvals)) == 1:
                 raise ValueError(f"Cannot have mixture of different outcome space sizes: {nvals}")
+            _nvals = [*nvals, nvars, nvals[0]] # [nvars] is for the switching variable, nvals[0] is for the output variable
+            super().__init__(_nvals, list(range(nvars + 1))) # size and parents
             self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
-            self._nvals = [*nvals, nvars, nvals[0]] # [nvars] is for the switching variable, nvals[0] is for the output variable
-            super().__init__(self._nvals, list(range(nvars + 1))) # size and parents
+            self._nvals = _nvals
             logits = torch.zeros(self._nvals).fill_(-math.inf)
             colon = slice(None, None, None)
             for sw in range(nvars):
@@ -46,13 +49,16 @@ class SwitchingTable(probability_tables.LogLinearTableInferenceMixin, probabilit
         self.mode = mode
 
     def probability_table(self) -> torch.Tensor:
-        return self.logits.exp()
+        return self.logits.exp().expand(*(*self.batch_size, *self.nvals)) # type:ignore
 
     def log_probability_table(self) -> torch.Tensor:
-        return self.logits
+        return self.logits.expand(*(*self.batch_size, *self.nvals)) # type:ignore
 
     def __repr__(self):
         return f"SwitchingTable({self.mode})"
+
+    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> SwitchingTable:
+        return super().expand_batch_dimensions(batch_sizes) # type:ignore
 
 class BatchedSwitchingTables(factor_graphs.FactorGraph):
 

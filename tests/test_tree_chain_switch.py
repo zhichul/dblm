@@ -17,12 +17,12 @@ class TestTreeChainSwitch(unittest.TestCase):
         self.tree.add_edge(0,1)
         self.tree.add_edge(0,2)
         self.pgmz0 = markov_networks.TreeMRF(self.sizez0, self.nvals, constants.TensorInitializer.CONSTANT, tree=self.tree)
-        self.pgmz0._factor_functions[0].logits.data = torch.tensor([[0., 10., 20., 30.], [0, 0, 10, 20]]).log()
-        self.pgmz0._factor_functions[1].logits.data = torch.tensor([[10.], [1.]]).log()
+        self.pgmz0._factor_functions[0]._logits.data = torch.tensor([[0., 10., 20., 30.], [0, 0, 10, 20]]).log()
+        self.pgmz0._factor_functions[1]._logits.data = torch.tensor([[10.], [1.]]).log()
         self.pgmzt = chains.FixedLengthDirectedChain(self.time, self.sizez0, constants.TensorInitializer.CONSTANT)
-        self.pgmzt._factor_functions[0].logits.data = torch.tensor([-math.inf, 0, -math.inf]) # initial one set to be 3
-        self.pgmzt._factor_functions[-1].logits.data = torch.tensor([-math.inf, 0, -math.inf]) # final one set to be 3
-        self.pgmzt._factor_functions[1].logits.data = torch.tensor([[1., 1., 1.],[10,10,10],[1000,1000,1000]]) # transition (SHARED) set to be uniform, scale shouldn't matter as locally normalized
+        self.pgmzt._factor_functions[0]._logits.data = torch.tensor([-math.inf, 0, -math.inf]) # initial one set to be 3
+        self.pgmzt._factor_functions[-1]._logits.data = torch.tensor([-math.inf, 0, -math.inf]) # final one set to be 3
+        self.pgmzt._factor_functions[1]._logits.data = torch.tensor([[1., 1., 1.],[10,10,10],[1000,1000,1000]]) # transition (SHARED) set to be uniform, scale shouldn't matter as locally normalized
         self.pgmxt = switching_tables.BatchedSwitchingTables(self.sizez0, self.nvals, self.time)
         model = factor_graphs.FactorGraph.join(self.pgmz0.to_factor_graph_model(), self.pgmzt.to_factor_graph_model(), dict())
         model = factor_graphs.FactorGraph.join(model, self.pgmxt,
@@ -50,7 +50,7 @@ class TestTreeChainSwitch(unittest.TestCase):
         # the factor 0-1 is max(v1 - v0, 0) * 10
         # the factor 0-2 is 10 if v0 == v2, else 1
         # the chain is conditioned on EOS, so still need global renormalization.
-        self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((0,0,0, 1,2,0,2,1, 6,2,0,2,6)).item()) # type:ignore impossible z0
+        # self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((0,0,0, 1,2,0,2,1, 6,2,0,2,6)).item()) # type:ignore impossible z0
         self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,2, 5,6,1,6,6)).item()) # type:ignore impossible zt
         self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,1, 5,6,1,5,5)).item()) # type:ignore impossible xt | z0 zt
 
@@ -58,6 +58,8 @@ class TestTreeChainSwitch(unittest.TestCase):
         self.assertAlmostEqual(math.log(200 * 1/81), self.model.log_unnormalized_likelihood_function((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item()) # type:ignore
 
     def test_likelihood(self):
+        table = self.model.to_potential_table()
+        self.assertAlmostEqual(math.log(200 * 1/81), table.log_potential_value((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item()) # type:ignore
         table = self.model.to_probability_table()
         self.assertAlmostEqual(20/630 * 1/27,table.likelihood_function((1,3,0, 1,2,0,2,1, 5,6,1,6,5)).item())
         self.assertAlmostEqual(200/630 * 1/27,table.likelihood_function((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item())

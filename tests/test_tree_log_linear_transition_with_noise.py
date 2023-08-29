@@ -20,11 +20,11 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
         self.tree.add_edge(0,1)
         self.tree.add_edge(0,2)
         self.pgmz0 = markov_networks.TreeMRF(self.sizez0, self.nvals, constants.TensorInitializer.CONSTANT, tree=self.tree)
-        self.pgmz0._factor_functions[0].logits.data = torch.tensor([[0., 10., 20., 30.], [0, 0, 10, 20]]).log()
-        self.pgmz0._factor_functions[1].logits.data = torch.tensor([[10.], [1.]]).log()
+        self.pgmz0._factor_functions[0]._logits.data = torch.tensor([[0., 10., 20., 30.], [0, 0, 10, 20]]).log()
+        self.pgmz0._factor_functions[1]._logits.data = torch.tensor([[10.], [1.]]).log()
         self.pgmz0_noise = noise.NoisyMixture(self.sizez0, self.nvals, constants.DiscreteNoise.UNIFORM)
         self.pgmztxt = log_linear_transitions.FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(self.sizez0, self.nvals, self.time, constants.TensorInitializer.CONSTANT, noise=constants.DiscreteNoise.UNIFORM, separate_noise_distribution_per_state=True)
-        self.pgmztxt._factor_functions[0].logits.data.zero_() # type:ignore
+        self.pgmztxt._factor_functions[0]._logits.data.zero_() # type:ignore
         self.pgmztxt.transition.layer.bias.data = torch.tensor([[1,-math.inf,1],[1,1,-math.inf],[-math.inf, 1, 1]]).reshape(-1)
         self.pgmztxt.transition.layer.weight.data = torch.tensor([[1000., 0., 3., 4., 5., 6., 7.], # 0 -> 0 continue talk about z0_0 if z0_0 = 0 and talked a lot
                                                                   [1., 2., 3., 4., 5., 6., 7.], # 0 -> 1 this transition is ruled out by bias so don't care
@@ -166,8 +166,8 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
         tree.add_edge(0,1)
         tree.add_edge(0,2)
         pgmz0 = markov_networks.TreeMRF(sizez0, nvals, constants.TensorInitializer.CONSTANT, tree=tree)
-        pgmz0._factor_functions[0].logits.data = torch.tensor([[0., 10., 20., 30.], [0, 0, 10, 20]]).log()
-        pgmz0._factor_functions[1].logits.data = torch.tensor([[10.], [1.]]).log()
+        pgmz0._factor_functions[0]._logits.data = torch.tensor([[0., 10., 20., 30.], [0, 0, 10, 20]]).log()
+        pgmz0._factor_functions[1]._logits.data = torch.tensor([[10.], [1.]]).log()
         pgmz0_noise = noise.NoisyMixture(sizez0, nvals, constants.DiscreteNoise.UNIFORM, mixture_ratio=(0.0,1.0))
         pgmztxt = log_linear_transitions.FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmissionWithNoiseInZ(sizez0, nvals, time, constants.TensorInitializer.UNIFORM, noise=constants.DiscreteNoise.UNIFORM, separate_noise_distribution_per_state=True, mixture_ratio=(0.0,1.0))
         pgmztxt.transition.layer.bias.data = torch.tensor([[1,-math.inf,1],[1,1,-math.inf],[-math.inf, 1, 1]]).reshape(-1)
