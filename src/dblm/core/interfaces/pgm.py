@@ -13,8 +13,8 @@ class MultivariateFunction:
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._nvars = 0
-        self._nvals = []
+        self._nvars: int
+        self._nvals: list
 
     @property
     def nvals(self) -> list[int]:
@@ -108,8 +108,8 @@ class Batchable:
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._batch_dims: int = 0
-        self._batch_size: tuple[int,...] = tuple()
+        self._batch_dims: int
+        self._batch_size: tuple[int,...]
 
     @property
     def batch_dims(self) -> int:

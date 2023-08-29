@@ -18,11 +18,12 @@ class SwitchingTable(probability_tables.LogLinearProbabilityMixin, probability_t
 
     def __init__(self, nvars: int, nvals: list[int], mode:constants.SwitchingMode = constants.SwitchingMode.VARPAIRVAL) -> None:
         self.call_super_init = True
+        self._batch_dims = 0
+        self._batch_size = tuple()
         if mode == constants.SwitchingMode.VARPAIRVAL:
-            _nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
-            super().__init__(_nvals, list(range(nvars + 1))) # size and parents
+            self._nvals = [*nvals, nvars, sum(nvals)] # [nvars] is for the switching variable, sum(nvals) is for the output variable
             self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
-            self._nvals = _nvals
+            super().__init__(list(range(nvars + 1))) # parents
             logits = torch.zeros(self._nvals).fill_(-math.inf)
             colon = slice(None, None, None)
             for sw in range(nvars):
@@ -33,10 +34,9 @@ class SwitchingTable(probability_tables.LogLinearProbabilityMixin, probability_t
         elif mode == constants.SwitchingMode.MIXTURE:
             if not len(set(nvals)) == 1:
                 raise ValueError(f"Cannot have mixture of different outcome space sizes: {nvals}")
-            _nvals = [*nvals, nvars, nvals[0]] # [nvars] is for the switching variable, nvals[0] is for the output variable
-            super().__init__(_nvals, list(range(nvars + 1))) # size and parents
             self._nvars = nvars + 2 # 1 is for the switching variable, 1 for the output variable
-            self._nvals = _nvals
+            self._nvals = [*nvals, nvars, nvals[0]] # [nvars] is for the switching variable, nvals[0] is for the output variable
+            super().__init__(list(range(nvars + 1))) # parents
             logits = torch.zeros(self._nvals).fill_(-math.inf)
             colon = slice(None, None, None)
             for sw in range(nvars):

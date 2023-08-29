@@ -1,4 +1,5 @@
 from __future__ import annotations
+import code
 from functools import reduce
 from typing import Sequence
 from dblm.core.interfaces import pgm, featurizer
@@ -101,16 +102,29 @@ class LogLinearTableInferenceMixin:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def condition_on(self, observation: dict[int, int] |  dict[int, torch.Tensor]):
+    def condition_on(self, observation: dict[int, int] |  dict[int, torch.Tensor]) -> LogLinearPotentialTable:
         """When supplied a tensor of assignments for the observations,
         returns a LogLinearPotentialTable with ADDITIONAL batch dimensions corresponding
         to the dimensions of the observations. This method "unsqueezes" new batch dimensions.
         """
+        is_single_observation = isinstance(next(observation.values().__iter__()), int)
+        new_batch_dims = 0
+        if not is_single_observation:
+            new_batch_dims = len(next(observation.values().__iter__()).size()) # type:ignore
         index = [slice(None,None,None)] * (self.batch_dims + self.nvars) # type:ignore
         for k,v in observation.items():
             index[self.batch_dims + k] = v # type:ignore
         logits = self.log_potential_table()[tuple(index)] #type:ignore
-        new_batch_dims = 0 if isinstance(next(observation.values().__iter__()), int) else len(next(observation.values().__iter__()).size()) # type:ignore
+        if not is_single_observation:
+            # permute the batch to the front, this may be costly
+            min_obs_var_index = min(observation.keys()) + self.batch_dims # type:ignore
+            permutation = list(range(len(logits.size())))
+            old_batch = permutation[:self.batch_dims] # type:ignore
+            new_batch = permutation[min_obs_var_index:min_obs_var_index + new_batch_dims]
+            front = permutation[self.batch_dims:min_obs_var_index] # type:ignore
+            back = permutation[min_obs_var_index + new_batch_dims:] # type:ignore
+            permutation = old_batch + new_batch + front + back
+            logits = logits.permute(*permutation)
         return LogLinearPotentialTable(logits.size(), logits, batch_dims=self.batch_dims + new_batch_dims) # type:ignore
 
     def marginalize_over(self, variables: Sequence[int]):
@@ -182,12 +196,14 @@ class LogLinearPotentialTable(LogLinearPotentialMixin, LogLinearTableInferenceMi
 
 class LogLinearProbabilityMixin(LogLinearPotentialMixin):
 
-    def __init__(self, size, parents, *args, **kwargs) -> None:
+    def __init__(self, parents, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._parents = tuple(parents)
-        self._children = tuple(i for i in range(len(size)) if i not in parents)
+        self._children = tuple(i for i in range(self.nvars) if i not in parents) # type:ignore
+        if len(parents) > self.nvars: # type:ignore
+            code.interact(local=locals())
         self._permute = self._parents + self._children
-        self._reverse_permute = [self._permute.index(i) for i in range(len(size))] #TODO fixed this n^2 slowness
+        self._reverse_permute = [self._permute.index(i) for i in range(self.nvars)] #type:ignore TODO fixed this n^2 slowness
         self._probability_table_cache = None
         self._log_probability_table_cache = None
 
@@ -282,7 +298,7 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
         topo_order = [0]
         return bayesian_networks.BayesianNetwork(nvars, nvals, factor_vars, parents, children, factor_functions, topo_order) # type:ignore
 
-    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]):
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> LogLinearPotentialTable | LogLinearProbabilityTable:
         index = [slice(None,None,None)] * (self.batch_dims + self.nvars) # type:ignore
         for k,v in observation.items():
             index[self.batch_dims + k] = v # type:ignore
@@ -290,7 +306,10 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
         children_set = set(self._children)
         parents_set = set(self._parents)
         new_batch_dims = 0 if isinstance(next(observation.values().__iter__()), int) else len(next(observation.values().__iter__()).size()) # type:ignore
-        if any(k in children_set for k in observation):
+        if all(k in observation for k in children_set):
+            # it doesn't make sense when children are all conditioned on to treat this as
+            # any sort of distribution, so make that explicit by returning a PotentialTable rather
+            # than a ProbabilityTable
             return LogLinearPotentialTable(logits.size(), logits, batch_dims=self.batch_dims + new_batch_dims) # type:ignore
         else:
             new_parents = []
@@ -308,7 +327,7 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
 
 class LogLinearProbabilityTable(LogLinearProbabilityMixin, LogLinearTableInferenceMixin, LogLinearTable, pgm.ProbabilityTable):
     def __init__(self, size, parents: list[int], initializer: constants.TensorInitializer | torch.Tensor, requires_grad:bool=True, batch_dims=0) -> None:
-        super().__init__(size, parents, size, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
+        super().__init__(parents, size, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
 
     @staticmethod
     def joint_from_factors(nvars: int, nvals: list[int], factor_variables: Sequence[tuple[int, ...]], factor_functions: Sequence[pgm.PotentialTable]):
