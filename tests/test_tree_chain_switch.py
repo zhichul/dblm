@@ -50,7 +50,7 @@ class TestTreeChainSwitch(unittest.TestCase):
         # the factor 0-1 is max(v1 - v0, 0) * 10
         # the factor 0-2 is 10 if v0 == v2, else 1
         # the chain is conditioned on EOS, so still need global renormalization.
-        # self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((0,0,0, 1,2,0,2,1, 6,2,0,2,6)).item()) # type:ignore impossible z0
+        self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((0,0,0, 1,2,0,2,1, 6,2,0,2,6)).item()) # type:ignore impossible z0
         self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,2, 5,6,1,6,6)).item()) # type:ignore impossible zt
         self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,1, 5,6,1,5,5)).item()) # type:ignore impossible xt | z0 zt
 

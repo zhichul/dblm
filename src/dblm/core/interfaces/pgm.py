@@ -56,11 +56,11 @@ class FactorGraphModel(ProbabilisticGraphicalModel, distribution.GloballyNormali
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def conditional_factor_variables(self, observation: dict[int, int]) -> list[int]:
+    def conditional_factor_variables(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[int]:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def conditional_factor_functions(self, observation: dict[int, int]) -> list[PotentialTable]:
+    def conditional_factor_functions(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[PotentialTable]:
         raise NotImplementedError()
 
 
@@ -119,11 +119,17 @@ class Batchable:
     def batch_size(self) -> tuple[int, ...]:
         return self._batch_size # type:ignore
 
-    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> Batchable:
+    def expand_batch_dimensions_meta_(self, batch_sizes: tuple[int, ...]) -> None:
         self._batch_size = batch_sizes + self._batch_size
         self._batch_dims = len(batch_sizes) + self._batch_dims
-        return self
 
+    @abc.abstractmethod
+    def expand_batch_dimensions_(self, batch_sizes: tuple[int, ...]) -> None:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> Batchable:
+        raise NotImplementedError()
 class PotentialTable(Batchable, MultivariateFunction, abc.ABC):
 
     @abc.abstractmethod

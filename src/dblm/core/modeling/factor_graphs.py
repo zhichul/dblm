@@ -53,22 +53,28 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
     def factor_functions(self) -> list[distribution.Distribution]:
         return self._factor_functions # type: ignore
 
-    def conditional_factor_variables(self, observation: dict[int, int]) -> list[tuple[int]]:
+    def conditional_factor_variables(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[tuple[int]]:
         return [tuple(var for var in factor_vars if var not in observation) for factor_vars in self._factor_variables]
 
-    def conditional_factor_functions(self, observation: dict[int, int]) -> list[pgm.PotentialTable]:
+    def conditional_factor_functions(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[pgm.PotentialTable]:
         new_factor_functions = []
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
             factor_function : pgm.PotentialTable
-            local_observation = {local_name: observation[global_name] for local_name, global_name in enumerate(factor_vars) if global_name in observation}
-            new_factor_functions.append(factor_function.condition_on(local_observation) if len(local_observation) > 0 else factor_function)
+            local_observation: dict[int,int] | dict[int, torch.Tensor] = {local_name: observation[global_name] for local_name, global_name in enumerate(factor_vars) if global_name in observation} # type:ignore
+            if len(local_observation) > 0:
+                new_factor_functions.append(factor_function.condition_on(local_observation))
+            else:
+                if isinstance(next(observation.values().__iter__()), torch.Tensor):
+                    new_factor_functions.append(factor_function.expand_batch_dimensions(tuple(next(observation.values().__iter__()).size()))) # type:ignore
+                else:
+                    new_factor_functions.append(factor_function)
         return new_factor_functions
 
     # GloballyNormalizedDistribution
-    def unnormalized_likelihood_function(self, assignment: tuple[int,...]) -> torch.Tensor:
+    def unnormalized_likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
         return self.log_unnormalized_likelihood_function(assignment).exp()
 
-    def log_unnormalized_likelihood_function(self, assignment: tuple[int,...]) -> torch.Tensor:
+    def log_unnormalized_likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
         lu = torch.tensor(0.0)
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
             factor_assignment = tuple(assignment[var] for var in factor_vars)
@@ -89,7 +95,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         return self._log_partition_function_cache
 
     # Distribution
-    def condition_on(self, observation: dict[int, int]) -> FactorGraph:
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> FactorGraph:
         factor_variables = self.conditional_factor_variables(observation)
         factor_functions = self.conditional_factor_functions(observation)
         return FactorGraph(self.nvars, self.nvals,factor_variables, factor_functions)
@@ -135,12 +141,12 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
         self.observable_variables = {v for _,v in observable}
         self.observable_variables_to_factors = {v:k for k,v in observable}
 
-    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]]) -> torch.Tensor:
+    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]] | Sequence[tuple[int, torch.Tensor]]) -> torch.Tensor:
         return self.incomplete_log_likelihood_function(assignment).exp() # type:ignore
 
-    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]], iterations=10) -> torch.Tensor:
+    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]] | Sequence[tuple[int, torch.Tensor]], iterations=10) -> torch.Tensor:
         """Assumes assignment is sorted according to the order of self.observable."""
-        assignment = list(assignment)
+        assignment = list(assignment) # type:ignore
         if dict(assignment).keys() != self.observable_variables:
             raise ValueError(f"can only evaluate the incomplete log likelihood of the prespecified observables: {self.observable_variables} got {dict(assignment).keys()}")
         bp = belief_propagation.FactorGraphBeliefPropagation()
@@ -148,7 +154,7 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
         for i, (var, val) in enumerate(assignment):
             factor = self.observable_variables_to_factors[var]
             sub_model = FactorGraph(var+1, self.nvals[:var+1], self._factor_variables[:factor+1], self._factor_functions[:factor+1]) #type:ignore
-            inference_results = bp.inference(sub_model, dict(assignment[:i]), [var], iterations=iterations) # observe the previous, query the ith
+            inference_results = bp.inference(sub_model, dict(assignment[:i]), [var], iterations=iterations) # type:ignore observe the previous, query the ith
             log_conditional_likelihood = inference_results.query_marginals[0].log_probability_table()[val]
             log_likelihood = log_likelihood + log_conditional_likelihood
         return log_likelihood
@@ -176,7 +182,7 @@ class AutoRegressiveBayesNetMixin:
             if factor_function.parent_indices() != tuple(range(factor_function.nvars - 1)):
                 print(f"not a autoregressive factor {factor_function} "
                       f"parents={factor_function.parent_indices()} nvars={factor_function.nvars}", file=sys.stderr)
-                code.interact(local=locals())
+                code.interact(local=locals()) # bad parent indices of autoregressive bayes
                 raise ValueError(f"not a autoregressive factor {factor_function}")
         # TODO: sortedness of the factors (w.r.t. the variable order) is not tested
 

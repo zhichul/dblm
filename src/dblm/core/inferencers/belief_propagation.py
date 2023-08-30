@@ -1,5 +1,8 @@
 from __future__ import annotations
+import code
 import dataclasses
+
+import torch
 from dblm.core import graph
 from dblm.core.interfaces import pgm
 from dblm.core.interfaces import inferencer
@@ -20,7 +23,7 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
         super().__init__()
         # define message passing schedule
 
-    def inference(self, model: pgm.FactorGraphModel, observation: dict[int, int], query: list[int], iterations=10, return_messages=False, renormalize=True):
+    def inference(self, model: pgm.FactorGraphModel, observation: dict[int, int] | dict[int, torch.Tensor], query: list[int], iterations=10, return_messages=False, renormalize=True):
         if any(query_var in observation for query_var in query):
             raise ValueError("query is part of observation, did you have a typo?")
         factor_variables = model.conditional_factor_variables(observation)
@@ -74,7 +77,7 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
             return outgoing_factors[0]
         else:
             nvars = 1
-            nvals = list(outgoing_factors[0].potential_table().size())
+            nvals = list(outgoing_factors[0].nvals)
             return probability_tables.LogLinearPotentialTable.joint_from_factors(nvars, nvals, [(0,)] * len(outgoing_factors), outgoing_factors)
 
     def _factor_to_variable(self, model, observation, factor_variables, factor_functions, messages_to_factors):

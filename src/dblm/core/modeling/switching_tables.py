@@ -47,16 +47,24 @@ class SwitchingTable(probability_tables.LogLinearProbabilityMixin, probability_t
         self.mode = mode
 
     def probability_table(self) -> torch.Tensor:
-        return self.logits.exp().expand(*(*self.batch_size, *self.nvals)) # type:ignore
+        return self.logits.exp() # type:ignore
 
     def log_probability_table(self) -> torch.Tensor:
-        return self.logits.expand(*(*self.batch_size, *self.nvals)) # type:ignore
+        return self.logits # type:ignore
 
     def __repr__(self):
         return f"SwitchingTable({self.mode})"
 
+    def expand_batch_dimensions_(self, batch_sizes: tuple[int, ...]) -> SwitchingTable:
+        self.expand_batch_dimensions_meta_(batch_sizes) # type:ignore
+        self.logits.data = self.logits.data.expand((*self.batch_size, *self.nvals))
+        return self
+
     def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> SwitchingTable:
-        return super().expand_batch_dimensions(batch_sizes) # type:ignore
+        # make a copy then do it in place
+        table = SwitchingTable(self.nvars-2, self.nvals[:self.nvars-2], mode=self.mode)
+        table.expand_batch_dimensions_(batch_sizes + self.batch_size) # type:ignore
+        return table
 
 class BatchedSwitchingTables(factor_graphs.FactorGraph):
 
