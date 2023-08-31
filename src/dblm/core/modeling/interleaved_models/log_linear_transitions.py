@@ -1,4 +1,5 @@
 from __future__ import annotations
+import code
 import math
 
 from dblm.core.featurizers import x_term_frequency
@@ -31,9 +32,10 @@ class LogLinearLatentMarkovTransitionBase(nn.Module):
         nn.init.zeros_(self.layer.bias) # intialize at uniform think of this as the shape of (nstate, ..., nstate) each row corresponding to a ngram prefix
 
     def logits(self, x_assignment):
+        batch_dims = len(x_assignment.size()) - 1
         features = self.featurizer(x_assignment)
         transition = self.layer(features)
-        return transition.reshape(*(self.nstate for _ in range(self.order + 1)))
+        return transition.reshape(*(x_assignment.size()[:batch_dims] + tuple(self.nstate for _ in range(self.order + 1))))
 
     def generate_wrapper(self, ntokens):
         return LogLinearLatentMarkovTransitionWrapper(self, [self.nstate] * (self.order + 1), ntokens)
@@ -43,7 +45,7 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
 
     error = NotImplementedError("This class is only a wrapper and cannot be evaluated. To evaluate first call fix_variables with assignments to all x's.")
 
-    def __init__(self, base: LogLinearLatentMarkovTransitionBase, conditional_size, ntokens):
+    def __init__(self, base: LogLinearLatentMarkovTransitionBase, conditional_size, ntokens, batch_dims=0, batch_size=tuple()):
         self.call_super_init = True
         super().__init__()
         self.base = base
@@ -53,17 +55,35 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
         self._x_indices = list(range(ntokens - base.order)) + [ntokens - base.order + i + 1 for i in range(base.order)]
         self._x_indices_set = set(self._x_indices)
         self._map_to_non_x = {j:i for i, j in enumerate([i for i in range(self._nvars) if i not in self._x_indices_set])}
+        self._batch_dims = batch_dims
+        self._batch_size = batch_size
 
-    def condition_on(self, observation: dict[int, int]):
+    def expand_batch_dimensions_(self, batch_sizes: tuple[int, ...]) -> LogLinearLatentMarkovTransitionWrapper:
+        super().expand_batch_dimensions_meta_(batch_sizes)
+        return self
+
+    def expand_batch_dimensions(self, batch_sizes: tuple[int, ...]) -> LogLinearLatentMarkovTransitionWrapper:
+        table = LogLinearLatentMarkovTransitionWrapper(self.base, self.conditional_size, self.ntokens, batch_dims=self.batch_dims, batch_size=self.batch_size)
+        table.expand_batch_dimensions_meta_(batch_sizes)
+        return table
+
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]):
         if not set(observation.keys()).issuperset(self._x_indices_set):
             print(observation, self._x_indices, list(range(self.nvars)))
             raise NotImplementedError("For efficiency, we only allow LogLinearLatentMarkovTransition fully conditioned on X")
-        o = LogLinearLatentMarkovTransition(self.base, self.conditional_size, list(range(self.base.order)), [observation[i] for i in self._x_indices])
+        if isinstance(next(observation.values().__iter__()), int):
+            x_observation = torch.tensor([observation[i] for i in self._x_indices])
+        else:
+            x_observation = torch.stack([observation[i] for i in self._x_indices], dim=1) # type:ignore
+        logits = self.base.logits(x_observation)
+        logits = logits.expand((*self.batch_size, *logits.size()))
+        o = probability_tables.LogLinearProbabilityTable(logits.size(), list(range(self.base.order)), logits, batch_dims=len(x_observation.size())-1)
         if len(observation.keys()) == len(self._x_indices):
             return o
         else:
             sub_observation = {self._map_to_non_x[k]:v for k,v in observation.items() if k not in self._x_indices_set}
-            return o.condition_on(sub_observation)
+            o = o.condition_on(sub_observation, cartesian=False) # type:ignore
+            return o
 
     def potential_table(self) -> torch.Tensor:
         raise self.error
@@ -72,10 +92,10 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
         raise self.error
 
     def potential_value(self, assignment) -> torch.Tensor:
-        return self.condition_on(dict(enumerate(assignment))).potential_table().reshape(-1).item() # type:ignore
+        return self.condition_on(dict(enumerate(assignment))).potential_table() # type:ignore
 
     def log_potential_value(self, assignment) -> torch.Tensor:
-        return self.condition_on(dict(enumerate(assignment))).log_potential_table().reshape(-1).item() # type:ignore
+        return self.condition_on(dict(enumerate(assignment))).log_potential_table() # type:ignore
 
     def marginalize_over(self, variables):
         raise self.error
@@ -103,20 +123,6 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
 
     def child_indices(self):
         return (self.nvars - 1,)
-
-class LogLinearLatentMarkovTransition(probability_tables.LogLinearProbabilityMixin, probability_tables.LogLinearTableInferenceMixin, nn.Module, pgm.ProbabilityTable):
-
-    def __init__(self, base: LogLinearLatentMarkovTransitionBase, size, parents, observation_list) -> None:
-        self.call_super_init = True
-        super().__init__(len(size), parents)
-        self._nvars = len(size)
-        self._nvals = list(size)
-        self.base = base
-        self.observation_list = observation_list
-
-    @property
-    def logits(self):
-        return self.base.logits(torch.tensor(list(self.observation_list)))
 
 class FixedLengthDirectedChainWithLogLinearTermFrequencyTransitionAndDeterministicEmission(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.FactorGraph, pgm.BayesianNetwork):
 

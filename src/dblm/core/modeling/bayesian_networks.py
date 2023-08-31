@@ -71,10 +71,10 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
             children_indices.update(children)
         return tuple(children_indices)
 
-    def likelihood_function(self, assignment):
+    def likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
         return self.log_likelihood_function(assignment).exp()
 
-    def log_likelihood_function(self, assignment):
+    def log_likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
         log_likelihood = torch.tensor(0.0)
         for i in self.topological_order():
             factor_vars, factor_function = self._factor_variables[i], self._factor_functions[i]

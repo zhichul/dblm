@@ -54,9 +54,13 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         return self._factor_functions # type: ignore
 
     def conditional_factor_variables(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[tuple[int]]:
+        if len(observation) == 0:
+            return self._factor_variables
         return [tuple(var for var in factor_vars if var not in observation) for factor_vars in self._factor_variables]
 
     def conditional_factor_functions(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[pgm.PotentialTable]:
+        if len(observation) == 0:
+            return self._factor_functions # type:ignore
         new_factor_functions = []
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
             factor_function : pgm.PotentialTable
@@ -155,7 +159,7 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
             factor = self.observable_variables_to_factors[var]
             sub_model = FactorGraph(var+1, self.nvals[:var+1], self._factor_variables[:factor+1], self._factor_functions[:factor+1]) #type:ignore
             inference_results = bp.inference(sub_model, dict(assignment[:i]), [var], iterations=iterations) # type:ignore observe the previous, query the ith
-            log_conditional_likelihood = inference_results.query_marginals[0].log_probability_table()[val]
+            log_conditional_likelihood = inference_results.query_marginals[0].log_likelihood_function((val,))
             log_likelihood = log_likelihood + log_conditional_likelihood
         return log_likelihood
 

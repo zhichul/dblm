@@ -101,19 +101,25 @@ class LogLinearTableInferenceMixin:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def condition_on(self, observation: dict[int, int] |  dict[int, torch.Tensor]) -> LogLinearPotentialTable:
+    def condition_on(self, observation: dict[int, int] |  dict[int, torch.Tensor], cartesian=True) -> LogLinearPotentialTable:
         """When supplied a tensor of assignments for the observations,
         returns a LogLinearPotentialTable with ADDITIONAL batch dimensions corresponding
         to the dimensions of the observations. This method "unsqueezes" new batch dimensions.
         """
         is_single_observation = isinstance(next(observation.values().__iter__()), int)
-        new_batch_dims = 0 if is_single_observation else len(next(observation.values().__iter__()).size()) # type:ignore
+        new_batch_dims = 0 if (is_single_observation or not cartesian) else len(next(observation.values().__iter__()).size()) # type:ignore
         index = [slice(None,None,None)] * (self.batch_dims + self.nvars) # type:ignore
         for k,v in observation.items():
             index[self.batch_dims + k] = v # type:ignore
-        logits = self.log_potential_table()[tuple(index)] #type:ignore
-        if not is_single_observation:
-            # permute the batch to the front, this may be costly
+        if cartesian or is_single_observation:
+            logits = self.log_potential_table()[tuple(index)] #type:ignore
+        else:
+            batch_total = reduce(int.__mul__, self.batch_size, 1) # type:ignore
+            logits = self.log_potential_table().reshape(-1, *self.nvals)[(list(range(batch_total)), *index[self.batch_dims:])] # type:ignore
+            logits = logits.reshape(*(*self.batch_size, *logits.size()[1:])) # type:ignore
+            assert len(logits.size()) == len(self.logits.size()) - len(observation) # type:ignore
+        if not is_single_observation and cartesian:
+            # permute the cartesian prod batch size to the back of the front, this may be costly
             min_obs_var_index = min(observation.keys()) + self.batch_dims # type:ignore
             permutation = list(range(len(logits.size())))
             old_batch = permutation[:self.batch_dims] # type:ignore
@@ -146,13 +152,13 @@ class LogLinearPotentialMixin:
             assignment = tuple(a.view(-1) for a in assignment) # type:ignore
             batch_size: tuple[int,...] = self.batch_size # type:ignore
             batch_total = reduce(int.__mul__, batch_size, 1)
-            if batch_total == 1:
+            if batch_total == 1 and self.batch_dims == 0: # type:ignore
                 # IMPORTANT: only this case we implicitly expand the batch dimensions to make it easier
                 # other cases must keep the size of assignment same as self.batch_size
                 # used to raise ValueError("If batch_total = 1 use integer indices not tensor")
                 return table_fn()[assignment]
             else:
-                return table_fn().view(-1, *self.nvals)[(list(range(batch_total)),*assignment)].reshape(*batch_size)# type:ignore
+                return table_fn().view(-1, *self.nvals)[(list(range(batch_total)),*assignment)].reshape(*batch_size) # type:ignore
         else:
             return table_fn()[assignment]
 
@@ -306,13 +312,19 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
         topo_order = [0]
         return bayesian_networks.BayesianNetwork(nvars, nvals, factor_vars, parents, children, factor_functions, topo_order) # type:ignore
 
-    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> LogLinearPotentialTable | LogLinearProbabilityTable:
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor], cartesian=True) -> LogLinearPotentialTable | LogLinearProbabilityTable:
         is_single_observation = isinstance(next(observation.values().__iter__()), int)
-        new_batch_dims = 0 if isinstance(next(observation.values().__iter__()), int) else len(next(observation.values().__iter__()).size()) # type:ignore
+        new_batch_dims = 0 if (is_single_observation or not cartesian) else len(next(observation.values().__iter__()).size()) # type:ignore
         index = [slice(None,None,None)] * (self.batch_dims + self.nvars) # type:ignore
         for k,v in observation.items():
             index[self.batch_dims + k] = v # type:ignore
-        logits = self.log_probability_table()[tuple(index)] #type:ignore
+        if cartesian or is_single_observation:
+            logits = self.log_probability_table()[tuple(index)] #type:ignore
+        else:
+            batch_total = reduce(int.__mul__, self.batch_size, 1) # type:ignore
+            logits = self.log_probability_table().reshape(-1, *self.nvals)[(list(range(batch_total)), *index[self.batch_dims:])] # type:ignore
+            logits = logits.reshape(*(*self.batch_size, *logits.size()[1:])) # type:ignore
+            assert len(logits.size()) == len(self.logits.size()) - len(observation) # type:ignore
         if not is_single_observation:
             # permute the batch to the front, this may be costly
             min_obs_var_index = min(observation.keys()) + self.batch_dims # type:ignore
