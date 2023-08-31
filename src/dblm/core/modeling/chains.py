@@ -58,10 +58,10 @@ class FixedLengthDirectedChain(nn.Module, pgm.FactorGraphModel):
     def factor_variables(self):
         raise NotImplementedError()
 
-    def partition_function(self) -> torch.Tensor:
+    def normalization_constant(self) -> torch.Tensor:
         raise NotImplementedError()
 
-    def log_partition_function(self) -> torch.Tensor:
+    def log_normalization_constant(self) -> torch.Tensor:
         raise NotImplementedError()
 
     def conditional_factor_variables(self, observation) -> list[tuple[int,...]]:
@@ -74,10 +74,10 @@ class FixedLengthDirectedChain(nn.Module, pgm.FactorGraphModel):
     def condition_on(self, observation):
         raise NotImplementedError()
 
-    def unnormalized_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+    def unnormalized_probability(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
-    def log_unnormalized_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+    def energy(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
     # Self

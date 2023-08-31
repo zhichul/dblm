@@ -50,19 +50,19 @@ class TestTreeChainSwitch(unittest.TestCase):
         # the factor 0-1 is max(v1 - v0, 0) * 10
         # the factor 0-2 is 10 if v0 == v2, else 1
         # the chain is conditioned on EOS, so still need global renormalization.
-        self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((0,0,0, 1,2,0,2,1, 6,2,0,2,6)).item()) # type:ignore impossible z0
-        self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,2, 5,6,1,6,6)).item()) # type:ignore impossible zt
-        self.assertAlmostEqual(0, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,1, 5,6,1,5,5)).item()) # type:ignore impossible xt | z0 zt
+        self.assertAlmostEqual(0, self.model.unnormalized_probability((0,0,0, 1,2,0,2,1, 6,2,0,2,6)).item()) # type:ignore impossible z0
+        self.assertAlmostEqual(0, self.model.unnormalized_probability((1,3,0, 1,2,0,2,2, 5,6,1,6,6)).item()) # type:ignore impossible zt
+        self.assertAlmostEqual(0, self.model.unnormalized_probability((1,3,0, 1,2,0,2,1, 5,6,1,5,5)).item()) # type:ignore impossible xt | z0 zt
 
-        self.assertAlmostEqual(20 * 1/81, self.model.unnormalized_likelihood_function((1,3,0, 1,2,0,2,1, 5,6,1,6,5)).item()) # type:ignore
-        self.assertAlmostEqual(math.log(200 * 1/81), self.model.log_unnormalized_likelihood_function((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item()) # type:ignore
+        self.assertAlmostEqual(20 * 1/81, self.model.unnormalized_probability((1,3,0, 1,2,0,2,1, 5,6,1,6,5)).item()) # type:ignore
+        self.assertAlmostEqual(math.log(200 * 1/81), self.model.energy((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item()) # type:ignore
 
     def test_likelihood(self):
         table = self.model.to_potential_table()
         self.assertAlmostEqual(math.log(200 * 1/81), table.log_potential_value((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item()) # type:ignore
         table = self.model.to_probability_table()
-        self.assertAlmostEqual(20/630 * 1/27,table.likelihood_function((1,3,0, 1,2,0,2,1, 5,6,1,6,5)).item())
-        self.assertAlmostEqual(200/630 * 1/27,table.likelihood_function((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item())
+        self.assertAlmostEqual(20/630 * 1/27,table.probability((1,3,0, 1,2,0,2,1, 5,6,1,6,5)).item())
+        self.assertAlmostEqual(200/630 * 1/27,table.probability((0,2,0, 1,2,0,2,1, 4,6,0,6,4)).item())
 
     def test_tree_bp(self):
         bp = belief_propagation.FactorGraphBeliefPropagation()

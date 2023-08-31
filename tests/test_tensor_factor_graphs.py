@@ -64,9 +64,9 @@ class TestTensorFactorGraphs(unittest.TestCase):
         # the factor 0-2 is 10 if v0 == v2, else 1
         # the chain is conditioned on EOS, so still need global renormalization.
         impossible_assignments = torch.tensor([(0,0,0, 1,2,0,2,1, 6,2,0,2,6),(1,3,0, 1,2,0,2,2, 5,6,1,6,6),(1,3,0, 1,2,0,2,1, 5,6,1,5,5)])
-        torch.testing.assert_close(torch.tensor([0.,0,0]), self.model.unnormalized_likelihood_function(tuple(impossible_assignments[:,i] for i in range(impossible_assignments.size(1))))) # type:ignore impossible z0
+        torch.testing.assert_close(torch.tensor([0.,0,0]), self.model.unnormalized_probability(tuple(impossible_assignments[:,i] for i in range(impossible_assignments.size(1))))) # type:ignore impossible z0
         possible_assignments = torch.tensor([(1,3,0, 1,2,0,2,1, 5,6,1,6,5), (0,2,0, 1,2,0,2,1, 4,6,0,6,4)])
-        torch.testing.assert_close(torch.tensor([20. * 1/81,200 * 1/81]), self.model.unnormalized_likelihood_function(tuple(possible_assignments[:,i] for i in range(impossible_assignments.size(1))))) # type:ignore
+        torch.testing.assert_close(torch.tensor([20. * 1/81,200 * 1/81]), self.model.unnormalized_probability(tuple(possible_assignments[:,i] for i in range(impossible_assignments.size(1))))) # type:ignore
 
     def test_likelihood(self):
         table = self.model.to_potential_table()
@@ -74,7 +74,7 @@ class TestTensorFactorGraphs(unittest.TestCase):
         torch.testing.assert_close(torch.tensor([math.log(200 * 1/81)]), table.log_potential_value(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore
         table = self.model.to_probability_table()
         assignments = torch.tensor([(1,3,0, 1,2,0,2,1, 5,6,1,6,5), (0,2,0, 1,2,0,2,1, 4,6,0,6,4)])
-        torch.testing.assert_close(torch.tensor([20/630 * 1/27, 200/630 * 1/27]), table.likelihood_function(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore
+        torch.testing.assert_close(torch.tensor([20/630 * 1/27, 200/630 * 1/27]), table.probability(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore
 
 if __name__ == "__main__":
     unittest.main()

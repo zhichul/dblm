@@ -13,11 +13,13 @@ The secondary goals are as follows:
 ## Distributions
 ```dblm.core.interfaces.distribution``` contains interfaces capturing the general behavior of the pmf / pdf of (conditional) distributions.
 
-```Distribution``` captures the idea that distributions are functions. The interface subsumes both discrete and continuous distributions. ```fix_variables()``` takes ```dict[int, int]``` of assignments and returns a ```GloballyNormalizedDistribution```.
+```Distribution``` captures the idea that distributions are functions. The interface subsumes both discrete and continuous distributions. ```condition_on()``` takes ```dict[int, int]``` of assignments and returns a ```Distribution```, usually a ```UnnormalizedDistribution```. Subclasses ```Distribution``` may sometimes leave ```condition_on()``` not implemented if there's no efficient way of computing it.
 
-```LocallyNormalizedDistribution``` captures distributions whose density or pmf is expected to be efficiently computed. It also needs to specify the parent indices and child indices of the distribution.
+```NormalizedDistribution``` captures distributions whose density or pmf is expected to be efficiently computed. 
 
-```GloballyNormalizedDistribution``` captures distributions whose unnormalized density or pmf is expected to be efficiently computed.
+```ConditionalDistribution``` specify the parent indices and child indices of the variables described by the distribution.
+
+```UnnormalizedDistribution``` captures distributions whose unnormalized density or pmf is expected to be efficiently computed.
 
 
 ## PGMs
@@ -34,7 +36,7 @@ Every graphical model representing a discrete distribution over $n$ variables im
 * ```.to_probability_table()``` can be converted to a (joint) normalized ```ProbabilityTable```
 * ```.to_potential_table()``` can be converted to a (joint) unnormalized ```PotentialTable```
 
-
+We should have factor types and tokens.
 ```FactorGraphModel``` is the most general representation of a graphical model. This is what we run belief propogation on. It requires the following methods:
 * ```factor_variables()``` returns a list of tuples of integer indices identifying the variables associated with the factors.
 * ```factor_functions()``` returns a list of ```PotentialTable```'s implementing the factor functions.
@@ -65,3 +67,6 @@ Every graphical model representing a discrete distribution over $n$ variables im
 
 ```ProabilityTable``` are noramlized ```PotentialTable```, plus a feature where you can declare a subset of the variables as parent and the remaining children, so the normalization is not always over all the variables, but only over the children variables.
 # Implementations
+## Classes that support tensor inputs
+```PotentialTable```, ```ProbabilityTable```, ```SwitchTable```, ```FactorGraph```, ```FactorGraphBeliefPropagation```
+TODO ```BayesianNetwork``` ```BPAutoregressiveIncompleteLikelihoodFactorGraph``` ```LogLinear```

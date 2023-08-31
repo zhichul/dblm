@@ -32,7 +32,7 @@ def main():
     bar = tqdm.tqdm(indices)
     epoch_loss = 0
     for i in bar:
-        loss = -true_nested_model.incomplete_log_likelihood_function(assignment=list(zip(observable_vars, dataset[i].tolist())))
+        loss = -true_nested_model.log_marginal_probability(assignment=list(zip(observable_vars, dataset[i].tolist())))
         # bookkeep
         epoch_loss += loss.item() / len(indices)
         bar.set_description_str(f"loss={loss.item():.2}")

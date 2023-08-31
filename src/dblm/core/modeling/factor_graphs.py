@@ -75,10 +75,10 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         return new_factor_functions
 
     # GloballyNormalizedDistribution
-    def unnormalized_likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
-        return self.log_unnormalized_likelihood_function(assignment).exp()
+    def unnormalized_probability(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
+        return self.energy(assignment).exp()
 
-    def log_unnormalized_likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
+    def energy(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
         lu = torch.tensor(0.0)
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
             factor_assignment = tuple(assignment[var] for var in factor_vars)
@@ -86,15 +86,15 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
             lu = lu + factor_potential
         return lu
 
-    def partition_function(self, use_cache=False) -> torch.Tensor:
-        return self.log_partition_function(use_cache=use_cache).exp()
+    def normalization_constant(self, use_cache=False) -> torch.Tensor:
+        return self.log_normalization_constant(use_cache=use_cache).exp()
 
-    def log_partition_function(self, use_cache=False) -> torch.Tensor:
+    def log_normalization_constant(self, use_cache=False) -> torch.Tensor:
         # TODO: this is brute force, we should probably turn it into a giant matrix first and use matrix operations but that would blowup memory
         if self._log_partition_function_cache is None or not use_cache:
             lz = torch.tensor(0.0)
             for assignment in tqdm.tqdm(itertools.product(*[list(range(nval)) for nval in self._nvals])):
-                lz = lz + self.log_unnormalized_likelihood_function(assignment)
+                lz = lz + self.energy(assignment)
             self._log_partition_function_cache = lz
         return self._log_partition_function_cache
 
@@ -130,7 +130,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
 
     # TODO: implement saving and loading
 
-class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.IncompleteLikelihoodMixin):
+class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.MarginalMixin):
 
     def __init__(self, nvars: int, nvals: list[int], factor_variables: list[tuple[int]], factor_functions: list[pgm.PotentialTable], observable: list[tuple[int, int]]) -> None:
         """`observable` is a list of pairs of which the first is the factor index, and the second is the variable index.
@@ -145,10 +145,10 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
         self.observable_variables = {v for _,v in observable}
         self.observable_variables_to_factors = {v:k for k,v in observable}
 
-    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]] | Sequence[tuple[int, torch.Tensor]]) -> torch.Tensor:
-        return self.incomplete_log_likelihood_function(assignment).exp() # type:ignore
+    def marginal_probability(self, assignment: Sequence[tuple[int, int]] | Sequence[tuple[int, torch.Tensor]]) -> torch.Tensor:
+        return self.log_marginal_probability(assignment).exp() # type:ignore
 
-    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]] | Sequence[tuple[int, torch.Tensor]], iterations=10) -> torch.Tensor:
+    def log_marginal_probability(self, assignment: Sequence[tuple[int, int]] | Sequence[tuple[int, torch.Tensor]], iterations=10) -> torch.Tensor:
         """Assumes assignment is sorted according to the order of self.observable."""
         assignment = list(assignment) # type:ignore
         if dict(assignment).keys() != self.observable_variables:
@@ -159,7 +159,7 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
             factor = self.observable_variables_to_factors[var]
             sub_model = FactorGraph(var+1, self.nvals[:var+1], self._factor_variables[:factor+1], self._factor_functions[:factor+1]) #type:ignore
             inference_results = bp.inference(sub_model, dict(assignment[:i]), [var], iterations=iterations) # type:ignore observe the previous, query the ith
-            log_conditional_likelihood = inference_results.query_marginals[0].log_likelihood_function((val,))
+            log_conditional_likelihood = inference_results.query_marginals[0].log_probability((val,)) # type:ignore
             log_likelihood = log_likelihood + log_conditional_likelihood
         return log_likelihood
 

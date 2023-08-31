@@ -77,7 +77,7 @@ class TestTensorTreeLogLinearTransitionWithNoise(unittest.TestCase):
                         1,2,0,1,5,
                         0,2,0,0,2)
         ])
-        torch.testing.assert_close(torch.zeros(3).fill_(-math.inf), self.model.log_unnormalized_likelihood_function(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore impossible z0
+        torch.testing.assert_close(torch.zeros(3).fill_(-math.inf), self.model.energy(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore impossible z0
 
         reference_log_unnormalized_likelihood = (math.log(20)
                                + math.log(1/3)
@@ -98,13 +98,13 @@ class TestTensorTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                     2,2,0,2,6,
                                     1,2,0,1,5,
                                     0,2,0,0,1)])
-        torch.testing.assert_close(torch.tensor([reference_log_unnormalized_likelihood]), self.model.log_unnormalized_likelihood_function(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore
+        torch.testing.assert_close(torch.tensor([reference_log_unnormalized_likelihood]), self.model.energy(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore
         directed_model = bayesian_networks.BayesianNetwork.join(self.pgmz0.to_probability_table().to_bayesian_network(), self.pgmz0_noise, {0:0,1:1,2:2})
         directed_model = bayesian_networks.BayesianNetwork.join(directed_model, self.pgmztxt, {0:9, 1:10, 2:11})
-        torch.testing.assert_close(torch.tensor([reference_log_likelihood]), directed_model.log_likelihood_function(tuple(assignment[:,i] for i in range(assignment.size(1)))))
+        torch.testing.assert_close(torch.tensor([reference_log_likelihood]), directed_model.log_probability(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore
         undirected_normalized_model = factor_graphs.FactorGraph.join(self.pgmz0.to_probability_table().to_factor_graph_model(), self.pgmz0_noise, shared={0:0,1:1,2:2})
         undirected_normalized_model = factor_graphs.FactorGraph.join(undirected_normalized_model, self.pgmztxt, shared={0:9,1:10,2:11})
-        torch.testing.assert_close(torch.tensor([reference_log_likelihood]), undirected_normalized_model.condition_on({16:torch.tensor([5]),21:torch.tensor([1]),26:torch.tensor([6]),31:torch.tensor([5]),36:torch.tensor([1])}).log_unnormalized_likelihood_function(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore
+        torch.testing.assert_close(torch.tensor([reference_log_likelihood]), undirected_normalized_model.condition_on({16:torch.tensor([5]),21:torch.tensor([1]),26:torch.tensor([6]),31:torch.tensor([5]),36:torch.tensor([1])}).energy(tuple(assignment[:,i] for i in range(assignment.size(1))))) # type:ignore
 
     def test_bp_incomplete_log_likelihood(self):
         # tests on a pure noise model
@@ -133,7 +133,7 @@ class TestTensorTreeLogLinearTransitionWithNoise(unittest.TestCase):
         model = factor_graphs.FactorGraph.join(pgmz0.to_factor_graph_model(), pgmz0_noise.to_factor_graph_model(), {0:0,1:1,2:2})
         model = factor_graphs.FactorGraph.join(model, pgmztxt.to_factor_graph_model(), {0:9, 1:10, 2:11})
         reference_incomplete_log_likelihood = math.log(1/3 * 1/3 * 1/3 * 1/3 * 1/3 * 1/2 * 1/4 * 1/1)
-        torch.testing.assert_close(torch.tensor([reference_incomplete_log_likelihood, reference_incomplete_log_likelihood]), factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(model, [(15,16),(20,21),(25,26),(30,31),(35,36)]).incomplete_log_likelihood_function([(16,torch.tensor([5,5])),(21,torch.tensor([1,1])),(26,torch.tensor([6,6])),(31,torch.tensor([5,5])),(36,torch.tensor([5,5]))],iterations=10))
+        torch.testing.assert_close(torch.tensor([reference_incomplete_log_likelihood, reference_incomplete_log_likelihood]), factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(model, [(15,16),(20,21),(25,26),(30,31),(35,36)]).log_marginal_probability([(16,torch.tensor([5,5])),(21,torch.tensor([1,1])),(26,torch.tensor([6,6])),(31,torch.tensor([5,5])),(36,torch.tensor([5,5]))],iterations=10))
 
 if __name__ == "__main__":
     unittest.main()

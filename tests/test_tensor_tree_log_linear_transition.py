@@ -47,7 +47,7 @@ class TestTensorTreeLogLinearTransition(unittest.TestCase):
         # the factor 0-2 is 10 if v0 == v2, else 1
         # the chain is conditioned on EOS, so still need global renormalization.
         assignments = torch.tensor([(0,0,0, 1,2, 0,0, 2,6, 1,2, 0,0), (1,3,0, 1,5, 2,6, 2,6, 1,5, 0,1),(1,3,0, 1,5, 0,1, 2,6, 1,5, 0,2)])
-        torch.testing.assert_close(torch.zeros(3).fill_(-math.inf), self.model.log_unnormalized_likelihood_function(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore impossible z0
+        torch.testing.assert_close(torch.zeros(3).fill_(-math.inf), self.model.energy(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore impossible z0
 
 
         reference_log_unnormalized_likelihood = (math.log(20)
@@ -59,15 +59,15 @@ class TestTensorTreeLogLinearTransition(unittest.TestCase):
         reference_log_likelihood = reference_log_unnormalized_likelihood - math.log(630) # that's the log partition of the z0 model, everything else is locally normalized
         # the default model is unnormalized
         assignment = torch.tensor([(1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1)])
-        self.assertAlmostEqual(reference_log_unnormalized_likelihood, self.model.log_unnormalized_likelihood_function(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3) # type:ignore
+        self.assertAlmostEqual(reference_log_unnormalized_likelihood, self.model.energy(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3) # type:ignore
         # turn z0 into a table first, and create a bayesian network that enforces local normalization
         directed_model = bayesian_networks.BayesianNetwork.join(self.pgmz0.to_probability_table().to_bayesian_network(), self.pgmztxt, shared={0:0,1:1,2:2})
-        self.assertAlmostEqual(reference_log_likelihood, directed_model.log_likelihood_function(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3)
+        self.assertAlmostEqual(reference_log_likelihood, directed_model.log_probability(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3)
         # turn z0 into table first, then the resulting factor graph is happens to be locally normalized
         undirected_normalized_model = factor_graphs.FactorGraph.join(self.pgmz0.to_probability_table().to_factor_graph_model(), self.pgmztxt, shared={0:0,1:1,2:2})
         assignments = torch.tensor([(1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1),(1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1)])
-        torch.testing.assert_close(torch.tensor([reference_log_likelihood, reference_log_likelihood]), undirected_normalized_model.condition_on({4:torch.tensor([5,5]),6:torch.tensor([1,1]),8:torch.tensor([6,6]),10:torch.tensor([5,5]),12:torch.tensor([1,1])}).log_unnormalized_likelihood_function(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore
-        torch.testing.assert_close(torch.tensor([reference_log_likelihood, reference_log_likelihood]), factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(self.model, [(3,4),(5,6),(7,8),(9,10),(11,12)]).incomplete_log_likelihood_function([(4,torch.tensor([5,5])),(6,torch.tensor([1,1])),(8,torch.tensor([6,6])),(10,torch.tensor([5,5])),(12,torch.tensor([1,1]))]))
+        torch.testing.assert_close(torch.tensor([reference_log_likelihood, reference_log_likelihood]), undirected_normalized_model.condition_on({4:torch.tensor([5,5]),6:torch.tensor([1,1]),8:torch.tensor([6,6]),10:torch.tensor([5,5]),12:torch.tensor([1,1])}).energy(tuple(assignments[:,i] for i in range(assignments.size(1))))) # type:ignore
+        torch.testing.assert_close(torch.tensor([reference_log_likelihood, reference_log_likelihood]), factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(self.model, [(3,4),(5,6),(7,8),(9,10),(11,12)]).log_marginal_probability([(4,torch.tensor([5,5])),(6,torch.tensor([1,1])),(8,torch.tensor([6,6])),(10,torch.tensor([5,5])),(12,torch.tensor([1,1]))]))
 
 if __name__ == "__main__":
     unittest.main()

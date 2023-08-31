@@ -87,7 +87,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
         # the factor 0-1 is max(v1 - v0, 0) * 10
         # the factor 0-2 is 10 if v0 == v2, else 1
         # the chain is conditioned on EOS, so still need global renormalization.
-        self.assertAlmostEqual(-math.inf, self.model.log_unnormalized_likelihood_function((0,0,0, # z0
+        self.assertAlmostEqual(-math.inf, self.model.energy((0,0,0, # z0
                                                                                            1,3,0, # noise
                                                                                            0,0,0, # switch
                                                                                            0,0,0, # output
@@ -96,7 +96,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                                                                            2,2,0,2,6,
                                                                                            1,2,0,1,2,
                                                                                            0,2,0,0,0)).item()) # type:ignore impossible z0
-        self.assertAlmostEqual(-math.inf, self.model.log_unnormalized_likelihood_function((1,3,0, # z0
+        self.assertAlmostEqual(-math.inf, self.model.energy((1,3,0, # z0
                                                                                            0,0,0, # noise
                                                                                            0,0,0, # switch
                                                                                            1,3,0, # output
@@ -105,7 +105,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                                                                            2,2,0,2,6,
                                                                                            1,2,0,1,5,
                                                                                            0,2,0,0,1)).item()) # type:ignore impossible zt (z2 specifically)
-        self.assertAlmostEqual(-math.inf, self.model.log_unnormalized_likelihood_function((1,3,0, # z0
+        self.assertAlmostEqual(-math.inf, self.model.energy((1,3,0, # z0
                                                                                            0,0,0, # noise
                                                                                            0,0,0, # switch
                                                                                            1,3,0, # output
@@ -125,7 +125,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                + math.log(1/2) + math.log(1/4) + math.log(1/1) # noise z0
                                + math.log(1/3) * 5) # noise zt
         reference_log_likelihood = reference_log_unnormalized_likelihood - math.log(630) # that's the log partition of the z0 model, everything else is locally normalized
-        self.assertAlmostEqual(reference_log_unnormalized_likelihood, self.model.log_unnormalized_likelihood_function((1,3,0, # z0
+        self.assertAlmostEqual(reference_log_unnormalized_likelihood, self.model.energy((1,3,0, # z0
                                                                                                                         0,0,0, # noise
                                                                                                                         0,0,0, # switch
                                                                                                                         1,3,0, # output
@@ -136,7 +136,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                                                                                                         0,2,0,0,1)).item(), 3) # type:ignore
         directed_model = bayesian_networks.BayesianNetwork.join(self.pgmz0.to_probability_table().to_bayesian_network(), self.pgmz0_noise, {0:0,1:1,2:2})
         directed_model = bayesian_networks.BayesianNetwork.join(directed_model, self.pgmztxt, {0:9, 1:10, 2:11})
-        self.assertAlmostEqual(reference_log_likelihood, directed_model.log_likelihood_function((1,3,0, # z0
+        self.assertAlmostEqual(reference_log_likelihood, directed_model.log_probability((1,3,0, # z0
                                                                                                 0,0,0, # noise
                                                                                                 0,0,0, # switch
                                                                                                 1,3,0, # output
@@ -147,7 +147,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
                                                                                                 0,2,0,0,1)).item(), 3)
         undirected_normalized_model = factor_graphs.FactorGraph.join(self.pgmz0.to_probability_table().to_factor_graph_model(), self.pgmz0_noise, shared={0:0,1:1,2:2})
         undirected_normalized_model = factor_graphs.FactorGraph.join(undirected_normalized_model, self.pgmztxt, shared={0:9,1:10,2:11})
-        self.assertAlmostEqual(reference_log_likelihood, undirected_normalized_model.condition_on({16:5,21:1,26:6,31:5,36:1}).log_unnormalized_likelihood_function(
+        self.assertAlmostEqual(reference_log_likelihood, undirected_normalized_model.condition_on({16:5,21:1,26:6,31:5,36:1}).energy(
                                                                                                 (1,3,0, # z0
                                                                                                 0,0,0, # noise
                                                                                                 0,0,0, # switch
@@ -185,7 +185,7 @@ class TestTreeLogLinearTransitionWithNoise(unittest.TestCase):
         model = factor_graphs.FactorGraph.join(pgmz0.to_factor_graph_model(), pgmz0_noise.to_factor_graph_model(), {0:0,1:1,2:2})
         model = factor_graphs.FactorGraph.join(model, pgmztxt.to_factor_graph_model(), {0:9, 1:10, 2:11})
         reference_incomplete_log_likelihood = math.log(1/3 * 1/3 * 1/3 * 1/3 * 1/3 * 1/2 * 1/4 * 1/1)
-        self.assertAlmostEqual(reference_incomplete_log_likelihood, factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(model, [(15,16),(20,21),(25,26),(30,31),(35,36)]).incomplete_log_likelihood_function([(16,5),(21,1),(26,6),(31,5),(36,1)],iterations=10).item(), 3)
+        self.assertAlmostEqual(reference_incomplete_log_likelihood, factor_graphs.BPAutoregressiveIncompleteLikelihoodFactorGraph.from_factor_graph(model, [(15,16),(20,21),(25,26),(30,31),(35,36)]).log_marginal_probability([(16,5),(21,1),(26,6),(31,5),(36,1)],iterations=10).item(), 3)
 
     def test_inference(self):
         bp = belief_propagation.FactorGraphBeliefPropagation()

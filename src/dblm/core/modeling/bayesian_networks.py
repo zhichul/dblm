@@ -71,15 +71,15 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
             children_indices.update(children)
         return tuple(children_indices)
 
-    def likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
-        return self.log_likelihood_function(assignment).exp()
+    def unnormalized_probability(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
+        return self.energy(assignment).exp()
 
-    def log_likelihood_function(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
+    def energy(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
         log_likelihood = torch.tensor(0.0)
         for i in self.topological_order():
             factor_vars, factor_function = self._factor_variables[i], self._factor_functions[i]
             factor_assignment = tuple(assignment[var] for var in factor_vars)
-            factor_potential = factor_function.log_likelihood_function(factor_assignment) # type:ignore
+            factor_potential = factor_function.log_probability(factor_assignment) # type:ignore
             log_likelihood = log_likelihood + factor_potential
         return log_likelihood
 

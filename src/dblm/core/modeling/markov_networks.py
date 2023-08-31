@@ -83,16 +83,16 @@ class TreeMRF(nn.Module, pgm.MarkovRandomField):
         return mrf
 
     # GloballyNormalizedDistribution
-    def unnormalized_likelihood_function(self, assignment):
+    def unnormalized_probability(self, assignment):
         raise NotImplementedError()
 
-    def log_unnormalized_likelihood_function(self, assignment):
+    def energy(self, assignment):
         raise NotImplementedError()
 
-    def partition_function(self):
+    def normalization_constant(self):
         return NotImplementedError()
 
-    def log_partition_function(self):
+    def log_normalization_constant(self):
         return NotImplementedError()
 
 if __name__ == "__main__":

@@ -7,18 +7,18 @@ import torch
 class Distribution(abc.ABC):
 
     @abc.abstractmethod
-    def likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+    def probability(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def log_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+    def log_probability(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
     @abc.abstractmethod
     def condition_on(self, observation: dict[int, int]) -> Distribution:
         raise NotImplementedError()
 
-class LocallyNormalizedDistribution(Distribution):
+class ConditionalDistribution(Distribution):
 
     @abc.abstractmethod
     def parent_indices(self) -> tuple[int,...]:
@@ -28,37 +28,44 @@ class LocallyNormalizedDistribution(Distribution):
     def child_indices(self) -> tuple[int,...]:
         raise NotImplementedError()
 
-
-class GloballyNormalizedDistribution(Distribution):
+class UnnormalizedDistribution(Distribution):
 
     @abc.abstractmethod
-    def unnormalized_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+    def unnormalized_probability(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def partition_function(self) -> torch.Tensor:
+    def normalization_constant(self) -> torch.Tensor:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def log_unnormalized_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
+    def energy(self, assignment: tuple[int, ...]) -> torch.Tensor:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def log_partition_function(self) -> torch.Tensor:
+    def log_normalization_constant(self) -> torch.Tensor:
         raise NotImplementedError()
 
-    def likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
-        return self.unnormalized_likelihood_function(assignment) / self.partition_function()
+    def probability(self, assignment: tuple[int, ...]) -> torch.Tensor:
+        return self.unnormalized_probability(assignment) / self.normalization_constant()
 
-    def log_likelihood_function(self, assignment: tuple[int, ...]) -> torch.Tensor:
-        return self.log_unnormalized_likelihood_function(assignment) - self.log_partition_function()
+    def log_probability(self, assignment: tuple[int, ...]) -> torch.Tensor:
+        return self.energy(assignment) - self.log_normalization_constant()
 
-class IncompleteLikelihoodMixin(abc.ABC):
+class MarginalMixin(abc.ABC):
 
     @abc.abstractmethod
-    def incomplete_likelihood_function(self, assignment: Sequence[tuple[int, int]]) -> torch.Tensor:
+    def marginal_probability(self, assignment: Sequence[tuple[int, int]]) -> torch.Tensor:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def incomplete_log_likelihood_function(self, assignment: Sequence[tuple[int, int]]) -> torch.Tensor:
+    def log_marginal_probability(self, assignment: Sequence[tuple[int, int]]) -> torch.Tensor:
         raise NotImplementedError()
+
+class NormalizedDistribution(UnnormalizedDistribution):
+
+    def normalization_constant(self):
+        return 1
+
+    def log_normalization_constant(self):
+        return 0

@@ -269,10 +269,10 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
             self._log_probability_table_cache = log_probs
         return self._log_probability_table_cache
 
-    def likelihood_function(self, assignment):
+    def unnormalized_probability(self, assignment):
         return self._index(assignment, self.probability_table)
 
-    def log_likelihood_function(self, assignment):
+    def energy(self, assignment):
         return self._index(assignment, self.log_probability_table)
 
     def potential_table(self) -> torch.Tensor:
@@ -284,10 +284,10 @@ class LogLinearProbabilityMixin(LogLinearPotentialMixin):
         return self.log_probability_table()
 
     def potential_value(self, assignment):
-        return self.likelihood_function(assignment)
+        return self.probability(assignment) # type:ignore
 
     def log_potential_value(self, assignment):
-        return self.log_likelihood_function(assignment)
+        return self.log_probability(assignment) # type:ignore
 
     def to_probability_table(self):
         return self

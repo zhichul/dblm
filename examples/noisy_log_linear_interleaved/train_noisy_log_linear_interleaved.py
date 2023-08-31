@@ -34,7 +34,7 @@ def main():
         random.shuffle(indices)
         epoch_loss = 0
         for i in bar:
-            loss = -random_nested_model.incomplete_log_likelihood_function(assignment=list(zip(observable_vars, dataset[i].tolist())))
+            loss = -random_nested_model.log_marginal_probability(assignment=list(zip(observable_vars, dataset[i].tolist())))
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()

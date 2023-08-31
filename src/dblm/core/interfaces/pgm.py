@@ -42,7 +42,7 @@ class ProbabilisticGraphicalModel(MultivariateFunction, abc.ABC):
     def to_potential_table(self) -> PotentialTable:
         raise NotImplementedError()
 
-class FactorGraphModel(ProbabilisticGraphicalModel, distribution.GloballyNormalizedDistribution):
+class FactorGraphModel(ProbabilisticGraphicalModel, distribution.UnnormalizedDistribution):
 
     def to_factor_graph_model(self) -> FactorGraphModel:
         return self
@@ -64,7 +64,7 @@ class FactorGraphModel(ProbabilisticGraphicalModel, distribution.GloballyNormali
         raise NotImplementedError()
 
 
-class BayesianNetwork(ProbabilisticGraphicalModel, distribution.LocallyNormalizedDistribution):
+class BayesianNetwork(ProbabilisticGraphicalModel, distribution.ConditionalDistribution, distribution.NormalizedDistribution):
 
     @abc.abstractmethod
     def local_distributions(self) -> list[distribution.Distribution]:
@@ -94,7 +94,7 @@ class BayesianNetwork(ProbabilisticGraphicalModel, distribution.LocallyNormalize
     def child_indices(self):
         return tuple(range(self.nvars))
 
-class MarkovRandomField(ProbabilisticGraphicalModel, distribution.GloballyNormalizedDistribution):
+class MarkovRandomField(ProbabilisticGraphicalModel, distribution.UnnormalizedDistribution):
 
     @abc.abstractmethod
     def local_potentials(self) -> list[PotentialTable]:
@@ -163,7 +163,7 @@ class PotentialTable(Batchable, MultivariateFunction, abc.ABC):
     def renormalize(self) -> ProbabilityTable:
         raise NotImplementedError
 
-class ProbabilityTable(PotentialTable, ProbabilisticGraphicalModel, distribution.LocallyNormalizedDistribution):
+class ProbabilityTable(PotentialTable, ProbabilisticGraphicalModel, distribution.ConditionalDistribution, distribution.NormalizedDistribution):
 
     def graph(self) -> graph.Graph:
         raise NotImplementedError()

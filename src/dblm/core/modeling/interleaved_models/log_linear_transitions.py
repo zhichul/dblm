@@ -112,11 +112,11 @@ class LogLinearLatentMarkovTransitionWrapper(nn.Module, pgm.ProbabilityTable):
     def to_bayesian_network(self):
         raise self.error
 
-    def log_likelihood_function(self, assignment):
+    def energy(self, assignment):
         return self.condition_on(dict(enumerate(assignment))).log_potential_table().reshape(-1).item() # type:ignore this fixation will first create a probability table, then get the assignment's probability, represented as a potential value
 
-    def likelihood_function(self, assignment):
-        raise self.log_likelihood_function(assignment).exp() # type:ignore
+    def unnormalized_probability(self, assignment):
+        raise self.log_probability(assignment).exp() # type:ignore
 
     def parent_indices(self):
         return tuple(range(self.nvars - 1))
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     ztxt.transition.layer.bias.data = torch.tensor([[1,-math.inf,1],[1,1,-math.inf],[-math.inf, 1, 1]]).reshape(-1)
     model = factor_graphs.FactorGraph.join(z0.to_factor_graph_model(), ztxt, {0:0, 1:1, 2:2})
     try:
-        model.unnormalized_likelihood_function((0,0,0,1,2,0,0,2,4,2,4))
+        model.unnormalized_probability((0,0,0,1,2,0,0,2,4,2,4))
     except NotImplementedError:
         print("correctly refused to evaluate...")
     print(model.factor_variables())
