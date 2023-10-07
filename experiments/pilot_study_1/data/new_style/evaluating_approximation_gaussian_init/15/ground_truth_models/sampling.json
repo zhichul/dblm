@@ -1,0 +1,5 @@
+{
+    "samples": 10000,
+    "model_type": "interleaved",
+    "seed": 15
+}

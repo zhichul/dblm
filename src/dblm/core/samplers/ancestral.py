@@ -20,7 +20,7 @@ class AncestralSamplerWithPotentialTables(sampler.Sampler):
                     seen.add(child)
         return len(seen) == distribution.nvars
 
-    def sample(self, n, distribution: pgm.BayesianNetwork):
+    def sample(self, n, distribution: pgm.BayesianNetwork, device="cpu"):
         if not self.check_is_joint(distribution):
             raise ValueError("this sampler requires a joint distribution to be specified")
         # TODO alternatively take an argument that specifies how to sample each individual distribution so that it don't have to be a potential table
@@ -45,4 +45,37 @@ class AncestralSamplerWithPotentialTables(sampler.Sampler):
                 for child, value in zip(children, sample.reshape(-1).tolist()):
                     assignment[child] = value
             assignments.append(assignment)
-        return torch.tensor(assignments)
+        return torch.tensor(assignments, device=device)
+
+class BatchAncestralSamplerWithPotentialTables(AncestralSamplerWithPotentialTables):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tabular_sampler = tabular.TabularSampler()
+
+    def sample(self, n, distribution: pgm.BayesianNetwork):
+        if not self.check_is_joint(distribution):
+            raise ValueError("this sampler requires a joint distribution to be specified")
+        # TODO alternatively take an argument that specifies how to sample each individual distribution so that it don't have to be a potential table
+        local_factors = distribution.local_distributions()
+        local_variables = distribution.local_variables()
+        local_parents = distribution.local_parents()
+        local_children = distribution.local_children()
+
+        if any(not isinstance(local_factor, pgm.PotentialTable) for local_factor in local_factors):
+            raise NotImplementedError("AncestralSamplerWithPotentialTables requires all local distributions implement pgm.PotentialTable.")
+        assignment = [None] * distribution.nvars
+        for i in distribution.topological_order():
+            parents = local_parents[i]
+            children = local_children[i]
+            variables = local_variables[i]
+            factor: pgm.PotentialTable = local_factors[i].expand_batch_dimensions((n,)) # type: ignore
+            if len(parents) > 0:
+                cpt = factor.condition_on({variables.index(p): assignment[p] for p in parents}, cartesian=False).renormalize() # type:ignore
+            else:
+                cpt = factor
+            sample = self.tabular_sampler.sample(1, cpt).squeeze(0) # type:ignore
+            assert sample.nelement() == len(children) * n
+            for child, value in zip(children, sample.T):
+                assignment[child] = value # type:ignore
+        return torch.stack(assignment, dim=1) # type:ignore

@@ -1,4 +1,7 @@
 from __future__ import annotations
+import math
+
+import torch
 
 def map_21(size1, size2, shared:dict[int, int]):
         """For two models with size1 and size2 variables each, and
@@ -17,3 +20,14 @@ def map_21(size1, size2, shared:dict[int, int]):
             else:
                 v2_to_v1[i] = shared[i]
         return v2_to_v1
+
+
+def index_to_one_hot(indices, n, logspace=True, device="cpu"):
+    if logspace:
+        if isinstance(indices, int):
+            indices = torch.tensor(indices, device=device)
+        base = torch.zeros((*indices.size(), n), device=indices.device).fill_(-math.inf)
+        base.scatter_(-1, indices[..., None], torch.zeros_like(indices, dtype=torch.float)[..., None])
+        return base
+    else:
+        raise NotImplementedError

@@ -1,14 +1,14 @@
 from __future__ import annotations
+import code
 from functools import reduce
 from typing import Sequence
 from dblm.core.interfaces import pgm, featurizer
-from dblm.core.modeling import factor_graphs, bayesian_networks
+from dblm.core.modeling import factor_graphs, bayesian_networks, utils
 from dblm.core.modeling import constants
 import torch.nn as nn
 import torch
 
 from dblm.utils import safe_operations
-
 """
 The implementations of the behavior of PotentialTable and ProbabilityTable is split to three units:
 
@@ -47,6 +47,17 @@ class LogLinearFeaturizedTable(nn.Module):
         if isinstance(initializer, constants.TensorInitializer):
             if initializer == constants.TensorInitializer.UNIFORM:
                 nn.init.uniform_(self.layer.weight, 0, 0.1)
+                nn.init.zeros_(self.layer.bias)
+            elif isinstance(initializer, constants.UniformlyRandomInitializer):
+                nn.init.uniform_(self.layer.weight, initializer.min, initializer.max)
+                nn.init.uniform_(self.layer.bias, initializer.min, initializer.max)
+            elif isinstance(initializer, constants.GaussianInitializer):
+                if initializer.min is None and initializer.max is None:
+                    nn.init.normal_(self.layer.weight, initializer.mean, initializer.std)
+                    nn.init.normal_(self.layer.bias, initializer.mean, initializer.std)
+                else:
+                    nn.init.trunc_normal_(self.layer.weight, initializer.mean, initializer.std, initializer.min, initializer.max) # type: ignore
+                    nn.init.trunc_normal_(self.layer.bias, initializer.mean, initializer.std, initializer.min, initializer.max) # type: ignore
             else:
                 raise NotImplementedError()
         else:
@@ -76,10 +87,19 @@ class LogLinearTable(nn.Module):
             self._logits = nn.Parameter(torch.zeros(size), requires_grad=requires_grad)
         elif initializer is constants.TensorInitializer.UNIFORM:
             self._logits = nn.Parameter(torch.rand(size), requires_grad=requires_grad)
+        elif isinstance(initializer, constants.UniformlyRandomInitializer):
+            self._logits = nn.Parameter(torch.empty(size))
+            nn.init.uniform_(self._logits, initializer.min, initializer.max) # type:ignore
+        elif isinstance(initializer, constants.GaussianInitializer):
+            self._logits = nn.Parameter(torch.empty(size))
+            if initializer.min is None and initializer.max is None:
+                nn.init.normal_(self._logits, initializer.mean, initializer.std)
+            else:
+                nn.init.trunc_normal_(self._logits, initializer.mean, initializer.std, initializer.min, initializer.max) # type: ignore
         elif isinstance(initializer, (nn.Parameter, torch.Tensor)):
             if list(initializer.size()) != list(size):
                 raise ValueError(f"Expected initializer size ({initializer.size()}) to match decalred size ({size})")
-            self._logits = initializer
+            self.register_buffer("_logits",initializer)
         else:
             raise NotImplementedError()
 
@@ -92,6 +112,10 @@ class LogLinearTable(nn.Module):
     @property
     def logits(self):
         return self._logits
+
+    @property
+    def device(self):
+        return self._logits.device
 
 
 class LogLinearTableInferenceMixin:
@@ -397,6 +421,10 @@ class LogLinearFeaturizedProbabilityTable(LogLinearProbabilityMixin, LogLinearTa
 
     def __init__(self, size, parents, feature_extractor, initializer, requires_grad=True, batch_dims=0) -> None:
         super().__init__(len(size) - batch_dims, parents, size, feature_extractor, initializer, requires_grad=requires_grad, batch_dims=batch_dims)
+
+def index_to_potential_table_message(indices, n):
+    base = utils.index_to_one_hot(indices, n)
+    return LogLinearPotentialTable(base.size(), base, batch_dims=len(base.size())-1)
 
 if __name__ == "__main__":
     table = LogLinearPotentialTable((3,4,5,6), constants.TensorInitializer.CONSTANT)

@@ -62,7 +62,7 @@ class TestTensorTreeLogLinearTransition(unittest.TestCase):
         self.assertAlmostEqual(reference_log_unnormalized_likelihood, self.model.energy(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3) # type:ignore
         # turn z0 into a table first, and create a bayesian network that enforces local normalization
         directed_model = bayesian_networks.BayesianNetwork.join(self.pgmz0.to_probability_table().to_bayesian_network(), self.pgmztxt, shared={0:0,1:1,2:2})
-        self.assertAlmostEqual(reference_log_likelihood, directed_model.log_probability(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3)
+        self.assertAlmostEqual(reference_log_likelihood, directed_model.log_probability(tuple(assignment[:,i] for i in range(assignment.size(1)))).item(), 3) # type:ignore
         # turn z0 into table first, then the resulting factor graph is happens to be locally normalized
         undirected_normalized_model = factor_graphs.FactorGraph.join(self.pgmz0.to_probability_table().to_factor_graph_model(), self.pgmztxt, shared={0:0,1:1,2:2})
         assignments = torch.tensor([(1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1),(1,3,0, 1,5, 0,1, 2,6, 1,5, 0,1)])

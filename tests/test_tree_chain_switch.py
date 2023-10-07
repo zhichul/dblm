@@ -5,7 +5,7 @@ import torch
 from dblm.core import graph
 from dblm.core.inferencers import belief_propagation
 
-from dblm.core.modeling import chains, constants, markov_networks, switching_tables, factor_graphs
+from dblm.core.modeling import batched_switching_tables, chains, constants, markov_networks, factor_graphs
 
 class TestTreeChainSwitch(unittest.TestCase):
 
@@ -23,7 +23,7 @@ class TestTreeChainSwitch(unittest.TestCase):
         self.pgmzt._factor_functions[0]._logits.data = torch.tensor([-math.inf, 0, -math.inf]) # initial one set to be 3
         self.pgmzt._factor_functions[-1]._logits.data = torch.tensor([-math.inf, 0, -math.inf]) # final one set to be 3
         self.pgmzt._factor_functions[1]._logits.data = torch.tensor([[1., 1., 1.],[10,10,10],[1000,1000,1000]]) # transition (SHARED) set to be uniform, scale shouldn't matter as locally normalized
-        self.pgmxt = switching_tables.BatchedSwitchingTables(self.sizez0, self.nvals, self.time)
+        self.pgmxt = batched_switching_tables.BatchedSwitchingTables(self.sizez0, self.nvals, self.time)
         model = factor_graphs.FactorGraph.join(self.pgmz0.to_factor_graph_model(), self.pgmzt.to_factor_graph_model(), dict())
         model = factor_graphs.FactorGraph.join(model, self.pgmxt,
                                                dict([(i, i) for i in range(self.sizez0)] +
@@ -66,7 +66,7 @@ class TestTreeChainSwitch(unittest.TestCase):
 
     def test_tree_bp(self):
         bp = belief_propagation.FactorGraphBeliefPropagation()
-        inference_results = bp.inference(self.model, {8:4,9:6,10:0,11:6,12:4}, [0,1,2, 3,4,5,6,7], iterations=10, return_messages=True, renormalize=False)
+        inference_results = bp.inference(self.model, {8:4,9:6,10:0,11:6,12:4}, [0,1,2, 3,4,5,6,7], iterations=10, return_messages=True, renormalize=False, materialize_switch=True)
 
         # first factor message
         torch.testing.assert_close(inference_results.messages_to_variables[0][0].potential_table(), torch.tensor([60., 30])) # type:ignore

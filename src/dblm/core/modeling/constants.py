@@ -1,4 +1,6 @@
+import dataclasses
 import enum
+from typing import Optional
 
 DEBUG_MODE=True
 
@@ -7,6 +9,18 @@ class TensorInitializer(enum.Enum):
     GAUSSIAN = enum.auto()
     UNIFORM = enum.auto()
     XAVIER = enum.auto()
+
+@dataclasses.dataclass
+class UniformlyRandomInitializer:
+    min :float = 0.
+    max :float = 1.
+
+@dataclasses.dataclass
+class GaussianInitializer:
+    mean :float = 0.
+    std :float = 1.
+    min: Optional[float] = None
+    max: Optional[float] = None
 
 class DiscreteNoise(enum.Enum):
     UNIFORM = enum.auto()

@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+import json
+import torch
+import os
+from dblm.experiments import data
+from dblm.experiments.pilot_study_1 import tree_mrf_noisy_emission
+from dblm.core.modeling.constants import TensorInitializer, UniformlyRandomInitializer, GaussianInitializer
+
+DATA_ROOT="../../../data/new_style/evaluating_approximation_gaussian_init"
+
+def main():
+    torch.set_num_threads(12)
+    n_samples = 100
+    for bp_iterations in [10,]: #20, 40]:
+        print(f"### bp_iterations={bp_iterations} ###")
+        results = []
+        for seed in [11]:
+            samples_file = os.path.join(DATA_ROOT, f"{seed}", "samples", "sample.csv")
+            mapping_file = os.path.join(DATA_ROOT, f"{seed}", "ground_truth_models", "mapping.json")
+            config_file = os.path.join(DATA_ROOT, f"{seed}", "ground_truth_models", "config.json")
+            config = data.load_json(config_file)
+            data_matrix = data.DataMatrix(samples_file, mapping_file)
+            model = tree_mrf_noisy_emission.TreeMrfNoisyEmission.load(os.path.join(DATA_ROOT, f"{seed}", "ground_truth_models"))
+            line = {"seed": seed, "config": config, "n_samples": n_samples}
+
+            indices, assignments = data_matrix.filter_variables_by_name_rule(lambda name: name.startswith("x")) # get all the observed variables
+            name = "cross_entropy(interleaved, nested)"
+            print(f"Evaluating {name} for seed {seed}...")
+            with torch.no_grad():
+                observations = [(vi, assignments[:n_samples, col]) for col, vi in enumerate(indices)]
+                log_marginals = model.nested_model.log_marginal_probability(observations, iterations=bp_iterations)
+            cross_entropy = log_marginals.mean().item()
+            line[name] = cross_entropy
+
+            name = "cross_entropy(interleaved, random_nested)"
+            print(f"Evaluating {name} for seed {seed}...")
+            cross_entropy_random_model = []
+            random_model_count = 3
+            for random_seed in range(200,200 + random_model_count):
+                random_model = tree_mrf_noisy_emission.TreeMrfNoisyEmission(
+                model.config["w_nvars"],
+                model.config["w_nvals"],
+                eval(model.config["w_param_initializer"]), # BAD
+                model.config["w_noise_ratio"],
+                model.config["zt_sequence_length"],
+                eval(model.config["zt_param_initializer"]), # BAD
+                model.config["zt_noise_ratio"],
+                seed=random_seed)
+                with torch.no_grad():
+                    observations = [(vi, assignments[:n_samples, col]) for col, vi in enumerate(indices)]
+                    log_marginals = random_model.nested_model.log_marginal_probability(observations, iterations=bp_iterations)
+                cross_entropy_random_model.append(log_marginals.mean().item())
+            line[name+ " mean"] = sum(cross_entropy_random_model) / random_model_count
+            line[name+ " count"] = random_model_count
+            line[name+ " variance"] = sum([(ce - line[name+ " mean"])**2 for ce in cross_entropy_random_model]) / (random_model_count-1)
+            results.append(line)
+        with open(f"results.bp={bp_iterations}.json", "w") as f:
+            json.dump(results, f)
+
+if __name__ == "__main__":
+    main()
+    # cProfile.run("main()")

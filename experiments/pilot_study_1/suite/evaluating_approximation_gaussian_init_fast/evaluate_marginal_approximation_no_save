@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import json
+
+import torch
+from dblm.core.modeling import constants, factory
+from dblm.experiments import data
+import os
+
+from dblm.utils import seeding
+
+
+DATA_ROOT="../../data/evaluating_approximation_gaussian_init"
+
+def main():
+
+    batch_size = 100
+    for bp_iterations in [20, 40, 80, 160]:
+        print(f"### bp_iterations={bp_iterations} ###")
+        results = []
+        for seed in [11]:
+            samples_file = os.path.join(DATA_ROOT, f"{seed}", "samples", "sample.csv")
+            mapping_file = os.path.join(DATA_ROOT, f"{seed}", "ground_truth_models", "mapping.json")
+            config_file = os.path.join(DATA_ROOT, f"{seed}", "ground_truth_models", "config.json")
+            data_matrix = data.DataMatrix(samples_file, mapping_file)
+
+            factor_graph, nested, bayes_net = data.load_model(os.path.join(DATA_ROOT, f"{seed}", "ground_truth_models"))
+            config = data.load_json(config_file)
+            line = {"seed": seed, "config": config}
+            indices, assignments = data_matrix.filter_variables_by_name_rule(lambda name: name.startswith("x")) # get all the observed variables
+
+            for p in nested.parameters():
+                p.requires_grad = False
+            name = "cross_entropy(interleaved, nested)"
+            print(f"Evaluating {name} for seed {seed}...")
+            log_marginals_list = []
+            for offset in [0]:
+                log_marginals = nested.log_marginal_probability([(vi, assignments[offset: offset+ batch_size, col]) for col, vi in enumerate(indices)], iterations=bp_iterations)
+                log_marginals_list.append(log_marginals)
+            all_log_marginals = torch.cat(log_marginals_list, dim=-1)
+            cross_entropy = all_log_marginals.mean().item()
+            del all_log_marginals
+            line[name] = cross_entropy
+
+            # name = "cross_entropy(interleaved, random_nested)"
+            # print(f"Evaluating {name} for seed {seed}...")
+            # cross_entropy_random_model = []
+            # random_model_count = 3
+            # for randseed in range(random_model_count):
+            #     log_marginals_list = []
+            #     # seeding.seed(randseed)
+            #     _, random_nested, _, _ = factory.tree_mrf_with_term_frequency_based_transition_and_separate_noise_per_token(
+            #     config["z0_num_variables"],
+            #     config["z0_num_values"],
+            #     constants.TensorInitializer.UNIFORM,
+            #     (1-config["noise_weight"], config["noise_weight"]),
+            #     config["sequence_length"],
+            #     constants.TensorInitializer.UNIFORM,
+            #     (1-config["noise_weight"], config["noise_weight"]))
+            #     for p in random_nested.parameters():
+            #         p.requires_grad = False
+            #     for offset in [0]:
+            #         log_marginals = random_nested.log_marginal_probability([(vi, assignments[offset: offset+ batch_size, col]) for col, vi in enumerate(indices)], iterations=bp_iterations)
+            #         log_marginals_list.append(log_marginals)
+            #     all_log_marginals = torch.cat(log_marginals_list, dim=-1)
+            #     cross_entropy_random_model.append(all_log_marginals.mean().item())
+            #     del all_log_marginals
+            # line[name+ " mean"] = sum(cross_entropy_random_model) / random_model_count
+            # line[name+ " count"] = random_model_count
+            # line[name+ " variance"] = sum([(ce - line[name+ " mean"])**2 for ce in cross_entropy_random_model]) / (random_model_count-1)
+
+
+            # # name = "entropy(interleaved)"
+            # # print(f"Evaluating {name} for seed {seed}...")
+            # # proposal = data.NgramLM.from_sequences(assignments.tolist())
+            # # log_marginals_list = []
+            # # for offset in range(0, assignments.size(0), batch_size):
+            # #     log_marginals = nested.log_marginal_probability([(vi, assignments[offset: offset+ batch_size, col]) for col, vi in enumerate(indices)])
+            # #     log_marginals_list.append(log_marginals)
+            # # all_log_marginals = torch.cat(log_marginals_list, dim=-1)
+            # # cross_entropy = all_log_marginals.mean().item()
+            # # line[name] = cross_entropy
+
+            # results.append(line)
+
+if __name__ == "__main__":
+    main()
+    # cProfile.run("main()")

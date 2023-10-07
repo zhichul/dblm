@@ -21,7 +21,7 @@ class LogSumExpSafe(torch.autograd.Function):
         grad_input, = torch.autograd.grad(output, input, grad_output)
         if input.requires_grad:
             zeros = grad_output.new_zeros(input.size())
-            g1 = torch.where((grad_output == 0).unsqueeze(dim.item()).expand_as(grad_input), zeros, grad_input)
+            g1 = torch.where((grad_output == 0).unsqueeze(dim.item()).expand_as(input), zeros, grad_input)
         else:
             g1 = None
         torch.set_anomaly_enabled(enabled)
