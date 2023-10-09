@@ -15,7 +15,7 @@ class Distribution(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def condition_on(self, observation: dict[int, int]) -> Distribution:
+    def condition_on(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> Distribution:
         raise NotImplementedError()
 
 class ConditionalDistribution(Distribution):
