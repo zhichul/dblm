@@ -1,6 +1,6 @@
 from dblm.core.interfaces import sampler
 from dblm.core.interfaces import pgm
-from dblm.core.modeling.interleaved_models import autoregressive_models
+from dblm.core.modeling.interleaved_models import autoregressive_interleaved_models, autoregressive_x_models
 from dblm.core.samplers import tabular
 import torch
 
@@ -71,9 +71,10 @@ class BatchAncestralSamplerWithPotentialTables(AncestralSamplerWithPotentialTabl
             children = local_children[i]
             variables = local_variables[i]
             factor: pgm.PotentialTable = local_factors[i].expand_batch_dimensions((n,)) # type: ignore
-            if isinstance(factor, autoregressive_models.AutoregressiveInterleavedModel):
-                cpt: autoregressive_models.ConditionalAutoregressiveInterleavedModel = factor.condition_on({variables.index(p): assignment[p] for p in parents}) # type:ignore
-                sample = cpt.sample()
+            if isinstance(factor, autoregressive_interleaved_models.AutoregressiveInterleavedModel) \
+                or isinstance(factor, autoregressive_x_models.AutoregressiveXModel):
+                cpt = factor.condition_on({variables.index(p): assignment[p] for p in parents}) # type:ignore
+                sample = cpt.sample() # type:ignore
             else:
                 if len(parents) > 0:
                     cpt = factor.condition_on({variables.index(p): assignment[p] for p in parents}, cartesian=False).renormalize() # type:ignore
@@ -81,7 +82,6 @@ class BatchAncestralSamplerWithPotentialTables(AncestralSamplerWithPotentialTabl
                     cpt = factor # type:ignore
                 sample = self.tabular_sampler.sample(1, cpt).squeeze(0) # type:ignore
                 assert sample.nelement() == len(children) * n
-            print(children)
             for child, value in zip(children, sample.T): # type:ignore
                 assignment[child] = value # type:ignore
         return torch.stack(assignment, dim=1) # type:ignore

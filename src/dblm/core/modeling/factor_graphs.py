@@ -53,7 +53,7 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
     def factor_variables(self) -> list[tuple[int,...]]:
         return self._factor_variables
 
-    def factor_functions(self) -> list[distribution.Distribution]:
+    def factor_functions(self) -> list[pgm.PotentialTable]:
         return self._factor_functions # type: ignore
 
     def conditional_factor_variables(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[tuple[int,...]]:
