@@ -67,8 +67,8 @@ def load_data(samples_file):
             data_matrix.append([int(i) for i in row])
     return torch.tensor(data_matrix)
 
-def load_json(mapping_file):
-    with open(mapping_file) as f:
+def load_json(json_file):
+    with open(json_file) as f:
         return json.loads(f.read())
 
 class DataMatrix:

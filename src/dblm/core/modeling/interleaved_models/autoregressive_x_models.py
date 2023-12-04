@@ -5,7 +5,7 @@ from typing import Sequence
 import torch
 from dblm.core.inferencers import belief_propagation
 from dblm.core.interfaces import distribution, pgm
-from dblm.core.modeling import bayesian_networks, factor_graphs
+from dblm.core.modeling import bayesian_networks, factor_graphs, probability_tables
 import torch.nn as nn
 
 class AutoregressiveXModel(nn.Module, pgm.ProbabilityTable):
@@ -125,32 +125,87 @@ class ConditionalAutoregressiveXModel(AutoregressiveXModel):
 
 class LatentWorldAutoregressiveXModel(factor_graphs.FactorGraph, distribution.MarginalMixin):
 
-    def __init__(self, pgmz0: pgm.FactorGraphModel, pgmxt: AutoregressiveXModel):
+    def __init__(self, pgmz0: pgm.FactorGraphModel, pgmxt: AutoregressiveXModel, embedding: torch.nn.Embedding):
         fg = factor_graphs.FactorGraph.join(pgmz0, pgmxt.to_factor_graph_model(), shared=dict(enumerate(range(pgmz0.nvars))))
         self.call_super_init = True
         super().__init__(fg.nvars, fg.nvals, fg.factor_variables(), fg.factor_functions())
         self.pgmz0 = pgmz0
         self.pgmxt = pgmxt
         self.bp = belief_propagation.FactorGraphBeliefPropagation()
+        self.embedding = embedding
 
     def marginal_probability(self, assignment: Sequence[tuple[int, int]]):
         return super().marginal_probability(assignment)
 
     def log_marginal_probability(self, assignment: Sequence[tuple[int, int]]):
-        self.forward_propagation([None] * self.pgmz0.nvars, assignment) # type:ignore
-        return super().log_marginal_probability(assignment)
+        assignment = list(assignment)
+        if len(assignment) > 0 and isinstance(assignment[0][1], int):
+            assignment = [(a[0], torch.tensor([[a[1]]], dtype=torch.long)) for a in assignment] # type:ignore
+        input_ids = torch.cat([a[1] for a in assignment], dim=-1) # type:ignore
+        log_marginal = 0
+        for i in range(len(assignment)):
+            log_conditiona_marginal = self.forward_backward([None] * self.pgmz0.nvars, input_ids[...,:i+2]) # type:ignore
+            log_marginal = log_marginal + log_conditiona_marginal
+        return log_marginal
 
-    def forward_propagation(self, z0_backward_messages: list[pgm.PotentialTable], assignment: Sequence[tuple[int, int]]):
-        z0_marginals = self.latent_variable_inference(z0_backward_messages)
-        self.forward_x_propagation(z0_marginals, assignment) # type:ignore
+    def forward_backward(self, z0_backward_messages: list[pgm.PotentialTable], input_ids: torch.Tensor, num_iterations=3):
+        for _ in range(num_iterations):
+            z0_forward_messages = self.latent_variable_inference(z0_backward_messages)
+            z0_backward_messages = self.forward_backward_single(z0_forward_messages, input_ids) # type:ignore
+        z0_forward_messages = self.latent_variable_inference(z0_backward_messages)
+        log_marginals = [m.log_probability_table().detach().requires_grad_() for m in z0_forward_messages]
+        logits = self.forward_single(log_marginals, input_ids)
+        shift_logits = logits[..., -2:-1, :]
+        shift_labels = input_ids[..., -1:]
+        loss_fct = nn.CrossEntropyLoss(reduce="sum")
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        return loss
 
-    def forward_x_propagation(self, z0_marginals: list[pgm.ProbabilityTable], assignment: Sequence[tuple[int, int]]):
-        log_marginals = [m.log_probability_table() for m in z0_marginals]
-        assert False
+
+    def forward_backward_single(self, z0_forward_messages: list[pgm.ProbabilityTable], input_ids: torch.Tensor):
+        log_marginals = [m.log_probability_table().detach().requires_grad_() for m in z0_forward_messages]
+        logits = self.forward_single(log_marginals, input_ids)
+        z0_backward_messages = self.backward_single(log_marginals, logits, input_ids)
+        return z0_backward_messages
+
+    def forward_single(self, log_marginals: list[torch.Tensor], input_ids: torch.Tensor):
+        encoder_log_marginals = torch.cat(log_marginals, dim=-1)
+        encoder_hidden_states = self.embedding(torch.arange(encoder_log_marginals.size(-1)))[None,...]
+        encoder_hidden_states = encoder_hidden_states.expand(input_ids.size(0), encoder_hidden_states.size(1), encoder_hidden_states.size(2))
+        if len(input_ids.size()) == 1:
+            input_ids = input_ids.unsqueeze(0)
+            encoder_log_marginals = encoder_log_marginals.unsqueeze(0)
+            encoder_hidden_states = encoder_hidden_states.unsqueeze(0)
+        logits = self.pgmxt.transformer(input_ids=input_ids, encoder_hidden_states=encoder_hidden_states,
+                                        encoder_log_marginals=encoder_log_marginals,
+                                        encoder_attention_mode="albo").logits
+        return logits
+
+    def backward_single(self, log_marginals: list[torch.Tensor], logits: torch.Tensor, input_ids: torch.Tensor):
+        messages = []
+        for i in reversed(range(input_ids.size(-1)-1)):
+            label = input_ids[..., i+1]
+            probsi = logits[..., i,:].softmax(-1)
+            gradi = torch.autograd.grad(probsi.gather(dim=-1, index=label.unsqueeze(1)), log_marginals, retain_graph=True, create_graph=True)
+            messagei = [torch.clamp(g, min=1e-9).log() - m for g, m in zip(gradi, log_marginals)]
+            messages.append(messagei)
+        out_messages = []
+        for j in range(len(log_marginals)):
+            out_log_marginal = None
+            for i in reversed(range(input_ids.size(-1)-1)):
+                if out_log_marginal is None:
+                    out_log_marginal = messages[i][j]
+                else:
+                    out_log_marginal += messages[i][j]
+            out_message = probability_tables.LogLinearProbabilityTable(tuple(out_log_marginal.size()), [], out_log_marginal, batch_dims=1) # type:ignore
+            out_messages.append(out_message)
+        return out_messages
 
     def latent_variable_inference(self, z0_backward_messages: list[pgm.PotentialTable]):
         if all(m is None for m in z0_backward_messages):
-            return self.bp.inference(self.pgmz0, dict(), list(range(self.pgmz0.nvars))).query_marginals
+            qm = self.bp.inference(self.pgmz0, dict(), list(range(self.pgmz0.nvars))).query_marginals
+            qm = [m.expand_batch_dimensions((1,)) for m in qm]
+            return qm
         else:
             batch_size = self.check_batch_size(z0_backward_messages)
             model = factor_graphs.FactorGraph(
@@ -160,7 +215,8 @@ class LatentWorldAutoregressiveXModel(factor_graphs.FactorGraph, distribution.Ma
                 [f.expand_batch_dimensions(batch_size) for f in self.pgmz0.factor_functions()]  # type:ignore
                 + [m for m in z0_backward_messages if m is not None] # type:ignore
             )
-            return self.bp.inference(model, dict(), list(range(self.pgmz0.nvars))).query_marginals
+            qm = self.bp.inference(model, dict(), list(range(self.pgmz0.nvars))).query_marginals
+            return qm
 
     def check_batch_size(self, messages):
         batch_size = None

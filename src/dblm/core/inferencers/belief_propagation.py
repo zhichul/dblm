@@ -1,6 +1,7 @@
 from __future__ import annotations
 import code
 import dataclasses
+import math
 
 import torch
 import tqdm
@@ -57,8 +58,8 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
         super().__init__()
         # define message passing schedule
 
-    def inference(self, model: pgm.FactorGraphModel, observation: dict[int, int] | dict[int, torch.Tensor], query: list[int], iterations=10, return_messages=False, renormalize=True, materialize_switch=False, messages_to_factors=None, messages_to_variables=None, true_parallel=False):
-        if any(query_var in observation for query_var in query):
+    def inference(self, model: pgm.FactorGraphModel, observation: dict[int, int] | dict[int, torch.Tensor], query: list[int], iterations=10, return_messages=False, renormalize=True, materialize_switch=False, messages_to_factors=None, messages_to_variables=None, true_parallel=False, allow_query_observation=False):
+        if any(query_var in observation for query_var in query) and not allow_query_observation:
             raise ValueError("query is part of observation, did you have a typo?")
         factor_variables = conditional_factor_variables(model.factor_variables(), model.factor_functions(), observation, materialize_switch)
         factor_functions = conditional_factor_functions(model.factor_variables(), model.factor_functions(), observation, materialize_switch)
@@ -85,6 +86,14 @@ class FactorGraphBeliefPropagation(inferencer.MarginalInferencer):
                 query_factors[edge.variable_id].append(message)
         results = []
         for var in query:
+            if var in observation:
+                if not isinstance(observation[var], torch.Tensor):
+                    raise NotImplementedError("allow_query_observation not implemented for nontensor observations")
+                table = probability_tables.LogLinearProbabilityTable([model.nvals[var]], [], constants.TensorInitializer.CONSTANT).to(factor_functions[0].device).expand_batch_dimensions(tuple(observation[var].size())) # type:ignore
+                table._logits.data.fill_(-math.inf)
+                table._logits.data = table._logits.data.scatter(dim=-1, index=observation[var][..., None], src=torch.zeros_like(observation[var][..., None], dtype=table.logits.data.dtype)) # type:ignore
+                results.append(table)
+                continue
             if len(query_factors[var]) == 0:
                 results.append(probability_tables.LogLinearProbabilityTable([model.nvals[var]], [], constants.TensorInitializer.CONSTANT).to(factor_functions[0].device))
             else:
