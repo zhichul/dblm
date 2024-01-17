@@ -10,7 +10,7 @@ from dblm.core.modeling import gpt2
 from dblm.utils import seeding
 from transformers.models.encoder_decoder import EncoderDecoderModel
 from transformers.models import bert
-from dblm.experiments.pilot_study_3 import distributions
+from dblm.experiments.pilot_study_3.utils import encoder_decoder_train_data_generator
 import wandb
 
 
@@ -27,6 +27,7 @@ def parse_args():
 
     # training
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--no_pos_z", action="store_true", default=False)
     parser.add_argument("--train_steps", type=int, required=True)
     parser.add_argument("--save_steps", type=int, required=True)
     parser.add_argument("--logging_steps", type=int, required=True)
@@ -65,22 +66,6 @@ def save_checkpoint(args, checkpoint_name, model, step, n_examples):
     with open(os.path.join(checkpointdir, "info.json"), "w") as f:
         print(json.dumps({"step": step, "n_examples": n_examples}), file=f)
 
-def train_data_generator(nvars, nvals, seq_len, n_branches, batch_size, x_model_seed):
-    """Note that seq_len is the length WITHOUT [BOS]"""
-    indices = torch.tensor(distributions.all_indices(seq_len, n_branches, list(range(nvars)), x_model_seed), dtype=torch.long)
-    ids = list(range(indices.size(0)))
-    while True:
-        z = torch.randint(nvals, (batch_size, nvars))
-        z = z + (torch.arange(nvars) * nvals)[None,...]
-        x_sel = indices[random.sample(ids, batch_size)]
-        x = torch.gather(z, 1, x_sel) # type:ignore
-        x = torch.cat([torch.empty((batch_size, 1), dtype=torch.long).fill_(nvars * nvals), x], dim=1) # prepend BOS
-        xinput = x[..., :-1]
-        xlabel = x[..., 1:]
-        pz = torch.arange(nvars).expand_as(z)
-        px = torch.arange(seq_len).expand(xinput.size())
-        yield z, xinput, xlabel, pz, px
-
 def main():
     args = parse_args()
     seeding.seed(args.seed)
@@ -90,7 +75,7 @@ def main():
 
     # load data
     seeding.seed(args.seed)
-    train_data = train_data_generator(args.nvars, args.nvals, args.seq_len, args.n_branches, args.gpu_batch_size, args.x_model_seed)
+    train_data = encoder_decoder_train_data_generator(args.nvars, args.nvals, args.seq_len, args.n_branches, args.gpu_batch_size, args.x_model_seed)
 
     # load model
 
@@ -123,6 +108,8 @@ def main():
     bar = tqdm.tqdm(train_data, desc="loss=", total=args.train_steps)
     for gpu_batch in bar:
         z, xinput, xlabel, pz, px = (i.to("cuda") for i in gpu_batch)
+        if args.no_pos_z:
+            pz = pz.fill_(0)
         output = model(input_ids=z, decoder_input_ids=xinput, position_ids=pz, decoder_position_ids=px, labels=xlabel, return_dict=True)
         loss = output.loss
         bar.set_description(f"loss={loss.item():.2f}")

@@ -5,7 +5,7 @@ for SEED in 42
 do
 for NVARS in 10
 do
-for NVALS in 7
+for NVALS in  7
 do
 for SEQ_LEN in 10
 do
@@ -23,7 +23,7 @@ for NLAYER in 12
 do
 for TRAIN_STEPS in 100000
 do
-OUT_DIR=${BLU_ARTIFACTS2}/dblm/experiments/pilot_study_3/pretrained_seq2seq_models/${SEED}/${NVARS}/${NVALS}/${SEQ_LEN}/${NBRANCHES}/${X_SEED}/${BATCH_SIZE}/${GPU_BATCH_SIZE}/${LR}/${NLAYER}/${TRAIN_STEPS}/
+OUT_DIR=${BLU_ARTIFACTS2}/dblm/experiments/pilot_study_3/pretrained_seq2seq_models_no_pos_z/${SEED}/${NVARS}/${NVALS}/${SEQ_LEN}/${NBRANCHES}/${X_SEED}/${BATCH_SIZE}/${GPU_BATCH_SIZE}/${LR}/${NLAYER}/${TRAIN_STEPS}/
 mkdir -p ${OUT_DIR}
 CUDA_VISIBLE_DEVICES=0 python3 pretrain_encoder_decoder.py \
     --nvars ${NVARS} \
@@ -39,7 +39,8 @@ CUDA_VISIBLE_DEVICES=0 python3 pretrain_encoder_decoder.py \
     --gpu_batch_size ${GPU_BATCH_SIZE} \
     --batch_size ${BATCH_SIZE} \
     --n_layer ${NLAYER} \
-    --output_dir ${OUT_DIR}
+    --output_dir ${OUT_DIR} \
+    --no_pos_z
 done
 done
 done

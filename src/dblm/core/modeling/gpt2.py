@@ -128,9 +128,9 @@ class GPT2Attention(nn.Module):
             "bias",
             torch.tril(torch.ones((max_positions, max_positions), dtype=torch.uint8)).view(
                 1, 1, max_positions, max_positions
-            ),
+            ), persistent=False
         )
-        self.register_buffer("masked_bias", torch.tensor(-1e4))
+        self.register_buffer("masked_bias", torch.tensor(-1e4), persistent=False)
 
         self.embed_dim = config.hidden_size
         self.num_heads = config.num_attention_heads
@@ -189,7 +189,12 @@ class GPT2Attention(nn.Module):
             log_adjustment = torch.log(1 - (1-1e-9) * log_marginals.exp()) + attn_weights
             log_denominator = torch.logaddexp(torch.logsumexp(log_numerator, dim=-1, keepdim=True), log_adjustment)
             attn_weights = log_numerator - log_denominator
-
+        elif attention_mode == "mult":
+            if len(log_marginals.size()) == 2: # batch x src_seq
+                log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
+            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
+                log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
+            attn_weights = attn_weights + log_marginals
 
         if self.scale_attn_weights:
             attn_weights = attn_weights / torch.full(
@@ -213,6 +218,23 @@ class GPT2Attention(nn.Module):
         if attention_mask is not None:
             # Apply the attention mask
             attn_weights = attn_weights + attention_mask
+
+        if attention_mode == "post_scale:albo":
+            if len(log_marginals.size()) == 2: # batch x src_seq
+                log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
+            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
+                log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
+            log_numerator = attn_weights + log_marginals
+            log_adjustment = torch.log(1 - (1-1e-9) * log_marginals.exp()) + attn_weights
+            log_denominator = torch.logaddexp(torch.logsumexp(log_numerator, dim=-1, keepdim=True), log_adjustment)
+            attn_weights = log_numerator - log_denominator
+        elif attention_mode == "post_scale:albo":
+            if len(log_marginals.size()) == 2: # batch x src_seq
+                log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
+            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
+                log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
+            attn_weights = attn_weights + log_marginals
+
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 

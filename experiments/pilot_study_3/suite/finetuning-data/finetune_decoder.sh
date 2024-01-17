@@ -30,12 +30,12 @@ for TRAIN_STEPS in 30000
 do
 for SAMPLE_SEED in 42
 do
-for N in 100000
+for N in 1000 2500 5000 10000 25000 50000 100000
 do
-OUT_DIR=${BLU_ARTIFACTS2}/dblm/experiments/pilot_study_3/finetuned_decoder_models/${SEED}/${NVARS}/${NVALS}/${SEQ_LEN}/${NBRANCHES}/${X_SEED}/${BATCH_SIZE}/${GPU_BATCH_SIZE}/${LR}/${NLAYER}/${TRAIN_STEPS}/${ZSEED}/${MEAN}/${STD}/
+OUT_DIR=${BLU_ARTIFACTS2}/dblm/experiments/pilot_study_3/finetuned_decoder_models_vary_data/${SEED}/${NVARS}/${NVALS}/${SEQ_LEN}/${NBRANCHES}/${X_SEED}/${BATCH_SIZE}/${GPU_BATCH_SIZE}/${LR}/${NLAYER}/${TRAIN_STEPS}/${ZSEED}/${MEAN}/${STD}/${N}
 PRETRAINED_DIR=${BLU_ARTIFACTS2}/dblm/experiments/pilot_study_3/pretrained_decoder_models/42/${NVARS}/${NVALS}/${SEQ_LEN}/${NBRANCHES}/${X_SEED}/64/64/1e-5/12/300000/checkpoint-300000/
 mkdir -p ${OUT_DIR}
-DATA_FOLDER="/home/blu/jhu/dblm/experiments/pilot_study_3/data/nvars=${NVARS}-nvals=${NVALS}-zseed=${Z_SEED}-seq_len=${SEQ_LEN}-nbranches=${NBRANCHES}-xseed=${X_SEED}-mean=${MEAN}-std=${STD}-sseed=${SAMPLE_SEED}-N=${N}"
+DATA_FOLDER="/home/blu/jhu/dblm/experiments/pilot_study_3/data/nvars=${NVARS}-nvals=${NVALS}-zseed=${Z_SEED}-seq_len=${SEQ_LEN}-nbranches=${NBRANCHES}-xseed=${X_SEED}-mean=${MEAN}-std=${STD}-sseed=${SAMPLE_SEED}-N=100000"
 CUDA_VISIBLE_DEVICES=1 python3 ../finetuning/finetune_decoder.py \
     --data_config ${DATA_FOLDER}/args.json \
     --data_meta ${DATA_FOLDER}/meta.json \
@@ -52,8 +52,9 @@ CUDA_VISIBLE_DEVICES=1 python3 ../finetuning/finetune_decoder.py \
     --batch_size ${BATCH_SIZE} \
     --n_layer ${NLAYER} \
     --output_dir ${OUT_DIR} \
-    --group finetune-nvals=7 \
-    --name std=${STD}-layer=${NLAYER}
+    --group finetune-data \
+    --name Regular-${N} \
+    --first ${N}
 
 done
 done
