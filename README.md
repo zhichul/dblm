@@ -1,6 +1,6 @@
 # Database Language Models
 
-Codebase for langauge model architectures that condition on externally provided probability distributions, as well as joint architectures that have a graphical model component and a neural lm component. (Thinking of probability distributions as "probabilistic databses" about the variables.
+Codebase for langauge model architectures that condition on externally provided probability distributions, as well as joint architectures that have a graphical model component and a neural lm component. (Thinking of probability distributions as "probabilistic databses" about the variables.)
 
 # Core Code
 Core interfaces and model definitions are in `src/dblm/core`. Attention mechanisms for encoding distributions is in `src/dblm/rva`.
