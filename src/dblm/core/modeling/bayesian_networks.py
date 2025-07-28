@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import torch
@@ -75,7 +74,7 @@ class BayesianNetwork(nn.Module, pgm.BayesianNetwork):
         return self.energy(assignment).exp()
 
     def energy(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]):
-        log_likelihood = torch.tensor(0.0)
+        log_likelihood = torch.tensor(0.0, device="cpu" if isinstance(assignment[0], int) else assignment[0].device)
         for i in self.topological_order():
             factor_vars, factor_function = self._factor_variables[i], self._factor_functions[i]
             factor_assignment = tuple(assignment[var] for var in factor_vars)

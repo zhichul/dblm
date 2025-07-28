@@ -6,7 +6,7 @@ import torch
 from dblm.core import graph
 from dblm.core.inferencers import belief_propagation
 
-from dblm.core.modeling import chains, constants, factor_graphs, markov_networks, switching_tables
+from dblm.core.modeling import batched_switching_tables, chains, constants, factor_graphs, markov_networks
 
 class TestTensorFactorGraphs(unittest.TestCase):
 
@@ -24,7 +24,7 @@ class TestTensorFactorGraphs(unittest.TestCase):
         self.pgmzt._factor_functions[0]._logits.data = torch.tensor([-math.inf, 0, -math.inf]) # initial one set to be 3
         self.pgmzt._factor_functions[-1]._logits.data = torch.tensor([-math.inf, 0, -math.inf]) # final one set to be 3
         self.pgmzt._factor_functions[1]._logits.data = torch.tensor([[1., 1., 1.],[10,10,10],[1000,1000,1000]]) # transition (SHARED) set to be uniform, scale shouldn't matter as locally normalized
-        self.pgmxt = switching_tables.BatchedSwitchingTables(self.sizez0, self.nvals, self.time)
+        self.pgmxt = batched_switching_tables.BatchedSwitchingTables(self.sizez0, self.nvals, self.time)
         model = factor_graphs.FactorGraph.join(self.pgmz0.to_factor_graph_model(), self.pgmzt.to_factor_graph_model(), dict())
         model = factor_graphs.FactorGraph.join(model, self.pgmxt,
                                                dict([(i, i) for i in range(self.sizez0)] +

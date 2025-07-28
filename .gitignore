@@ -164,3 +164,9 @@ deprecated/
 
 # 
 *.pt
+*.bin
+data/
+data_bc/
+data_s/
+spelling_data/
+wandb/

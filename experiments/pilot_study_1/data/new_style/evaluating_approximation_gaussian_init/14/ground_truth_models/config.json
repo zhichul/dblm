@@ -1,0 +1,1 @@
+{"w_nvars": 8, "w_nvals": [5, 5, 5, 5, 5, 5, 5, 5], "w_param_initializer": "GaussianInitializer(mean=0.0, std=10.0, min=-60.0, max=60.0)", "w_noise_ratio": [0.8, 0.2], "zt_sequence_length": 10, "zt_param_initializer": "GaussianInitializer(mean=0.0, std=10.0, min=-60.0, max=60.0)", "zt_noise_ratio": [0.8, 0.2], "seed": 14}

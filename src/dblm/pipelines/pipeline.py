@@ -30,18 +30,19 @@ class SaveArtifact:
 
 
 def main():
-    pipeline = Pipeline()
-    output = pipeline.add_sequential(
-        CreateDistributionStep(GraphDistribution()),
-        SamplingStep(),
-        SaveArtifact(),
-    )
-    pipeline.add_step(
-        inputs=[
-            output,
-            GraphDistribution()
-        ],
-        TopoSampler()
-    )
+    # pipeline = Pipeline()
+    # output = pipeline.add_sequential(
+    #     CreateDistributionStep(GraphDistribution()),
+    #     SamplingStep(),
+    #     SaveArtifact(),
+    # )
+    # pipeline.add_step(
+    #     inputs=[
+    #         output,
+    #         GraphDistribution()
+    #     ],
+    #     TopoSampler()
+    # )
 
-    output.materialize()
+    # output.materialize()
+    pass

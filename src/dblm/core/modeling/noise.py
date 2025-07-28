@@ -1,8 +1,13 @@
 from __future__ import annotations
 from dblm.core.interfaces import pgm
-from dblm.core.modeling import constants, factor_graphs, probability_tables, switching_tables
+from dblm.core.modeling import constants
+from dblm.core.modeling import probability_tables
+from dblm.core.modeling import switching_tables
+from dblm.core.modeling import factor_graphs
 import torch.nn as nn
 import torch
+
+
 
 class NoisyMixture(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.FactorGraph, pgm.BayesianNetwork):
     """
@@ -14,19 +19,19 @@ class NoisyMixture(factor_graphs.AutoRegressiveBayesNetMixin, factor_graphs.Fact
     Switch vars independently follow a binary distribution with mixture ratio specifying the bias.
     Output vars is determined deterministically using a SwitchingTable connected to both Noise, Original, and Switch variables.
     """
-    def __init__(self, nvars:int, nvals:list[int], noise=constants.DiscreteNoise.UNIFORM, mixture_ratio=(4.0,1.0)) -> None:
+    def __init__(self, nvars:int, nvals:list[int], noise=constants.DiscreteNoise.UNIFORM, mixture_ratio=(4.0,1.0), requires_grad=True) -> None:
         self._nvars = nvars * 4 # nvars, nvars noise, nvars switch, nvars out
         self._nvals = nvals + nvals + [2] * nvars + nvals
 
         factor_variables:list[tuple[int,...]] = [None] * (nvars * 3) #type:ignore
         factor_functions:list[pgm.ProbabilityTable] = [None] * (nvars * 3) # type:ignore
 
-        noise_switch = probability_tables.LogLinearProbabilityTable((2,), [], nn.Parameter(torch.tensor(mixture_ratio).log(), requires_grad=False))
+        noise_switch = probability_tables.LogLinearProbabilityTable((2,), [], nn.Parameter(torch.tensor(mixture_ratio).log(), requires_grad=requires_grad))
 
         for var in range(nvars):
-            # add noise (noise is currently independent of the true value of the variable)
+            # add noise (noise is currently independent of the true value of the variable), noise is NOT learnable
             if noise == constants.DiscreteNoise.UNIFORM:
-                noise_distribution = probability_tables.LogLinearProbabilityTable((nvals[var],), [], constants.TensorInitializer.CONSTANT)
+                noise_distribution = probability_tables.LogLinearProbabilityTable((nvals[var],), [], constants.TensorInitializer.CONSTANT, requires_grad=False)
             else:
                 raise NotImplementedError()
             factor_variables[var] = (nvars * 1 + var,)

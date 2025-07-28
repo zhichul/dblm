@@ -1,6 +1,8 @@
 from __future__ import annotations
 import code
 import itertools
+import json
+import os
 import sys
 from typing import Sequence
 import torch
@@ -16,23 +18,24 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
 
     def __init__(self, nvars: int,
                  nvals: list[int],
-                 factor_variables: list[tuple[int]],
+                 factor_variables: list[tuple[int, ...]],
                  factor_functions: list[pgm.PotentialTable]) -> None:
-        """factor_functions is required to be a subclass of both nn.Module too."""
+        """factor_functions is required to be a subcla-s of both nn.Module too."""
         self.call_super_init = True
         super().__init__()
         self._nvars = nvars # _nvars must be set for MultivariateFunction
         self._nvals = nvals # _nvals must be set for MultivariateFunction
         self._factor_variables = factor_variables
         self._factor_functions = nn.ModuleList(factor_functions) # type: ignore
-        self._graph = graph.FactorGraph(nvars, len(factor_functions))
-        for i in range(len(factor_functions)):
-            for var in factor_variables[i]:
-                self._graph.add_edge(i, var)
-
+        self._initialize_graph(nvars, factor_variables)
         self._partition_function_cache = None
         self._log_partition_function_cache = None
 
+    def _initialize_graph(self, nvars, factor_variables):
+        self._graph = graph.FactorGraph(nvars, len(factor_variables))
+        for i in range(len(factor_variables)):
+            for var in factor_variables[i]:
+                self._graph.add_edge(i, var)
 
     # ProbabilisticGraphicalModel
     def graph(self):
@@ -47,13 +50,13 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         return probability_tables.LogLinearPotentialTable.joint_from_factors(self._nvars, self._nvals, self._factor_variables, self._factor_functions)
 
     # FactorGraphModel
-    def factor_variables(self) -> list[tuple[int]]:
+    def factor_variables(self) -> list[tuple[int,...]]:
         return self._factor_variables
 
-    def factor_functions(self) -> list[distribution.Distribution]:
+    def factor_functions(self) -> list[pgm.PotentialTable]:
         return self._factor_functions # type: ignore
 
-    def conditional_factor_variables(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[tuple[int]]:
+    def conditional_factor_variables(self, observation: dict[int, int] | dict[int, torch.Tensor]) -> list[tuple[int,...]]:
         if len(observation) == 0:
             return self._factor_variables
         return [tuple(var for var in factor_vars if var not in observation) for factor_vars in self._factor_variables]
@@ -79,20 +82,22 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         return self.energy(assignment).exp()
 
     def energy(self, assignment: tuple[int,...] | tuple[torch.Tensor,...]) -> torch.Tensor:
-        lu = torch.tensor(0.0)
+        lu = torch.tensor(0.0, device="cpu" if isinstance(assignment[0], int) else assignment[0].device)
         for factor_vars, factor_function in zip(self._factor_variables, self._factor_functions):
-            factor_assignment = tuple(assignment[var] for var in factor_vars)
+            factor_assignment = tuple(assignment[var] for var in factor_vars) # type:ignore
             factor_potential = factor_function.log_potential_value(factor_assignment)
             lu = lu + factor_potential
+            # if factor_potential.isinf().any():
+            #     code.interact(local=locals())
         return lu
 
     def normalization_constant(self, use_cache=False) -> torch.Tensor:
         return self.log_normalization_constant(use_cache=use_cache).exp()
 
-    def log_normalization_constant(self, use_cache=False) -> torch.Tensor:
+    def log_normalization_constant(self, use_cache=False, device="cpu") -> torch.Tensor:
         # TODO: this is brute force, we should probably turn it into a giant matrix first and use matrix operations but that would blowup memory
         if self._log_partition_function_cache is None or not use_cache:
-            lz = torch.tensor(0.0)
+            lz = torch.tensor(0.0, device=device)
             for assignment in tqdm.tqdm(itertools.product(*[list(range(nval)) for nval in self._nvals])):
                 lz = lz + self.energy(assignment)
             self._log_partition_function_cache = lz
@@ -128,8 +133,6 @@ class FactorGraph(nn.Module, pgm.FactorGraphModel):
         o = FactorGraph(nvars_o, nvals_o, factor_variables_o, factor_functions_o) # type: ignore
         return o
 
-    # TODO: implement saving and loading
-
 class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.MarginalMixin):
 
     def __init__(self, nvars: int, nvals: list[int], factor_variables: list[tuple[int]], factor_functions: list[pgm.PotentialTable], observable: list[tuple[int, int]]) -> None:
@@ -154,13 +157,15 @@ class BPAutoregressiveIncompleteLikelihoodFactorGraph(FactorGraph, distribution.
         if dict(assignment).keys() != self.observable_variables:
             raise ValueError(f"can only evaluate the incomplete log likelihood of the prespecified observables: {self.observable_variables} got {dict(assignment).keys()}")
         bp = belief_propagation.FactorGraphBeliefPropagation()
-        log_likelihood = torch.tensor(0.0)
-        for i, (var, val) in enumerate(assignment):
+        log_likelihood = torch.tensor(0.0, device="cpu" if isinstance(assignment[0][1], int) else assignment[0][1].device)
+        for i, (var, val) in tqdm.tqdm(enumerate(assignment)):
             factor = self.observable_variables_to_factors[var]
             sub_model = FactorGraph(var+1, self.nvals[:var+1], self._factor_variables[:factor+1], self._factor_functions[:factor+1]) #type:ignore
             inference_results = bp.inference(sub_model, dict(assignment[:i]), [var], iterations=iterations) # type:ignore observe the previous, query the ith
             log_conditional_likelihood = inference_results.query_marginals[0].log_probability((val,)) # type:ignore
             log_likelihood = log_likelihood + log_conditional_likelihood
+            # breakpoint()
+            # print(log_conditional_likelihood)
         return log_likelihood
 
     @staticmethod
