@@ -18,7 +18,7 @@ import code
 import math
 import os
 from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, Dict, Any, List
 
 import torch
 import torch.utils.checkpoint
@@ -119,6 +119,36 @@ def load_tf_weights_in_gpt2(model, config, gpt2_checkpoint_path):
     return model
 
 
+def albo_b(attn_weights, log_marginals):
+    attn_weights = nn.functional.log_softmax(attn_weights, dim=-1)
+    log_numerator = attn_weights + log_marginals
+    log_adjustment = torch.log(1 - (1-1e-9) * log_marginals.exp()) + attn_weights
+    log_denominator = torch.logaddexp(torch.logsumexp(log_numerator, dim=-1, keepdim=True), log_adjustment)
+    attn_weights = (log_numerator - log_denominator).exp()
+    return attn_weights
+
+def albo(attn_weights, log_marginals, cond_log_marginals):
+    attn_weights = nn.functional.log_softmax(attn_weights, dim=-1)
+    log_numerator = attn_weights + log_marginals
+    cond_log_marginals[log_numerator.isinf().unsqueeze(-1).expand_as(cond_log_marginals)] = 0
+    log_denominator = (attn_weights.unsqueeze(-2) + cond_log_marginals).logsumexp(-1)
+    attn_weights = (log_numerator - log_denominator)
+    attn_weights = attn_weights.exp()
+    return attn_weights
+
+def mult(attn_weights, log_marginals):
+    attn_weights = attn_weights + log_marginals
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1)
+    return attn_weights
+
+def sample_attention(attn_weights, samples):
+    if samples is None or not isinstance(samples, torch.Tensor):
+        raise ValueError("Please pass in a single tensor of samples.")
+    attn_weights = attn_weights[:,:,:,None,:] # batch x head x src_seq x N x tgt_seq
+    attn_weights = attn_weights.masked_fill(~samples, -math.inf)
+    new_attn_weights = nn.functional.softmax(attn_weights, dim=-1).mean(-2) # batch x head x src_seq x N x tgt_seq -> batch x head x src_seq x tgt_seq
+    return new_attn_weights
+
 class GPT2Attention(nn.Module):
     def __init__(self, config, is_cross_attention=False, layer_idx=None):
         super().__init__()
@@ -177,24 +207,52 @@ class GPT2Attention(nn.Module):
         self.num_heads = self.num_heads - len(heads)
         self.pruned_heads = self.pruned_heads.union(heads)
 
-    def _attn(self, query, key, value, attention_mask=None, head_mask=None, log_marginals=None, attention_mode=None):
+    def _attn(self, query, key, value, attention_mask=None, head_mask=None, log_marginals=None, samples=None, attention_mode=None, attention_params=None):
         attn_weights = torch.matmul(query, key.transpose(-1, -2)) # batch x head x src_seq x dim  * batch x head x dim x tgt_seq
+        if isinstance(log_marginals, tuple) and len(log_marginals) == 2:
+            # unpack into log marginals and conditional log marginals
+            log_marginals, cond_log_marginals = log_marginals
+        else:
+            cond_log_marginals = None
+        if log_marginals is not None:
+            if attention_mode is not None and attn_weights.size(-1) > log_marginals.size(-1):
+                # reencode mode need to expand
+                if len(log_marginals.size()) == 2: # batch x tgt_seq
+                    log_marginals = log_marginals.repeat(1, attn_weights.size(-2))
+                if len(log_marginals.size()) == 3: # batch x src_seq x tgt_seq
+                    log_marginals = log_marginals.repeat(1, 1, attn_weights.size(-2))
+                if cond_log_marginals is not None:
+                    if len(cond_log_marginals.size()) == 3: # batch x tgt_seq (tgt) x tgt_seq (competitor)
+                        cond_log_marginals = cond_log_marginals.repeat(1,attn_weights.size(-2), attn_weights.size(-2))
+                    if len(cond_log_marginals.size()) == 4: # batch x src_seq x tgt_seq (tgt) x tgt_seq (competitor)
+                        cond_log_marginals = cond_log_marginals.repeat(1,1,attn_weights.size(-2), attn_weights.size(-2))
 
-        if attention_mode == "albo":
-            if len(log_marginals.size()) == 2: # batch x src_seq
+
+        if log_marginals is not None:
+            if len(log_marginals.size()) == 2: # batch x tgt_seq
                 log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
-            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
+            if len(log_marginals.size()) == 3: # batch x src_seq x tgt_seq
                 log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
-            log_numerator = attn_weights + log_marginals
-            log_adjustment = torch.log(1 - (1-1e-9) * log_marginals.exp()) + attn_weights
-            log_denominator = torch.logaddexp(torch.logsumexp(log_numerator, dim=-1, keepdim=True), log_adjustment)
-            attn_weights = log_numerator - log_denominator
-        elif attention_mode == "mult":
-            if len(log_marginals.size()) == 2: # batch x src_seq
-                log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
-            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
-                log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
-            attn_weights = attn_weights + log_marginals
+
+        if cond_log_marginals is not None:
+            if len(cond_log_marginals.size()) == 3: # batch x tgt_seq (tgt) x tgt_seq (competitor)
+                cond_log_marginals = cond_log_marginals[:, None, None, :, :].expand(attn_weights.size(0),
+                                                                        attn_weights.size(1),
+                                                                        attn_weights.size(2),
+                                                                        attn_weights.size(3),
+                                                                        cond_log_marginals.size(-1))
+            if len(cond_log_marginals.size()) == 4: # batch x src_seq x tgt_seq (tgt) x tgt_seq (competitor)
+                cond_log_marginals = cond_log_marginals[:, None, :, :, :].expand(attn_weights.size(0),
+                                                                        attn_weights.size(1),
+                                                                        attn_weights.size(2),
+                                                                        attn_weights.size(3),
+                                                                        cond_log_marginals.size(-1))
+
+        if samples is not None and isinstance(samples, torch.Tensor):
+            if len(samples.size()) == 3: # batch x N x tgt_seq
+                samples = samples[:, None, None, :, :]
+            if len(samples.size()) == 4: # batch x src_seq x N x tgt_seq
+                samples = samples[:, None, :, :, :]
 
         if self.scale_attn_weights:
             attn_weights = attn_weights / torch.full(
@@ -218,26 +276,27 @@ class GPT2Attention(nn.Module):
         if attention_mask is not None:
             # Apply the attention mask
             attn_weights = attn_weights + attention_mask
+            if log_marginals is not None:
+                log_marginals = log_marginals + attention_mask
+                log_marginals[log_marginals < -1e10] = -math.inf
+            if cond_log_marginals is not None:
+                cond_log_marginals = cond_log_marginals + attention_mask[...,None] + attention_mask[..., None, :]
+                cond_log_marginals[cond_log_marginals < -1e10] = -math.inf
 
         if attention_mode == "post_scale:albo":
-            if len(log_marginals.size()) == 2: # batch x src_seq
-                log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
-            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
-                log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
-            log_numerator = attn_weights + log_marginals
-            log_adjustment = torch.log(1 - (1-1e-9) * log_marginals.exp()) + attn_weights
-            log_denominator = torch.logaddexp(torch.logsumexp(log_numerator, dim=-1, keepdim=True), log_adjustment)
-            attn_weights = log_numerator - log_denominator
-        elif attention_mode == "post_scale:albo":
-            if len(log_marginals.size()) == 2: # batch x src_seq
-                log_marginals = log_marginals[:, None, None, :].expand_as(attn_weights)
-            if len(log_marginals.size()) == 3: # batch x tgt_seq x src_seq
-                log_marginals = log_marginals[:, None, :, :].expand_as(attn_weights)
-            attn_weights = attn_weights + log_marginals
-
-
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1)
-
+            attn_weights = albo_b(attn_weights, log_marginals)
+        elif attention_mode == "post_scale:albo_full":
+            attn_weights = albo(attn_weights, log_marginals, cond_log_marginals)
+        elif attention_mode == "post_scale:mult":
+            attn_weights = mult(attn_weights, log_marginals)
+        elif attention_mode == "post_scale:shared_sample" or attention_mode == "post_scale:pre_sample":
+            attn_weights = sample_attention(attn_weights, samples)
+        elif attention_mode is None:
+            attn_weights = nn.functional.softmax(attn_weights, dim=-1)
+        else:
+            raise ValueError(f"Unknown attention mode: {attention_mode}")
+        # if attention_mode is not None:
+        #     breakpoint()
         # Downcast (if necessary) back to V's dtype (if in mixed-precision) -- No-Op otherwise
         attn_weights = attn_weights.type(value.dtype)
         attn_weights = self.attn_dropout(attn_weights)
@@ -326,8 +385,10 @@ class GPT2Attention(nn.Module):
         head_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+        samples: Optional[List[torch.BoolTensor]] = None,
         log_marginals: Optional[torch.FloatTensor] = None,
         attention_mode: Optional[str] = None,
+        attention_params: Optional[Dict[Any, Any]] = None,
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]], ...]:
@@ -361,7 +422,7 @@ class GPT2Attention(nn.Module):
         if self.reorder_and_upcast_attn:
             attn_output, attn_weights = self._upcast_and_reordered_attn(query, key, value, attention_mask, head_mask)
         else:
-            attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask, log_marginals=log_marginals, attention_mode=attention_mode)
+            attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask, log_marginals=log_marginals, samples=samples, attention_mode=attention_mode, attention_params=attention_params)
 
         attn_output = self._merge_heads(attn_output, self.num_heads, self.head_dim)
         attn_output = self.c_proj(attn_output)
@@ -403,7 +464,7 @@ class GPT2Block(nn.Module):
 
         if config.add_cross_attention:
             self.crossattention = GPT2Attention(config, is_cross_attention=True, layer_idx=layer_idx)
-            self.ln_cross_attn = nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
+            self.ln_cross_attn = nn.Identity() if config.remove_ln_cross_attn else nn.LayerNorm(hidden_size, eps=config.layer_norm_epsilon)
 
         self.mlp = GPT2MLP(inner_dim, config)
 
@@ -416,7 +477,9 @@ class GPT2Block(nn.Module):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         encoder_log_marginals: Optional[torch.FloatTensor] = None,
+        encoder_samples: Optional[List[torch.BoolTensor]] = None,
         encoder_attention_mode: Optional[str] = None,
+        encoder_attention_params: Optional[Dict[Any, Any]] = None,
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
     ) -> Union[Tuple[torch.Tensor], Optional[Tuple[torch.Tensor, Tuple[torch.FloatTensor, ...]]]]:
@@ -451,7 +514,9 @@ class GPT2Block(nn.Module):
                 encoder_hidden_states=encoder_hidden_states,
                 encoder_attention_mask=encoder_attention_mask,
                 log_marginals=encoder_log_marginals,
+                samples=encoder_samples,
                 attention_mode=encoder_attention_mode,
+                attention_params=encoder_attention_params,
                 output_attentions=output_attentions,
             )
             attn_output = cross_attn_outputs[0]
@@ -789,7 +854,9 @@ class GPT2Model(GPT2PreTrainedModel):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         encoder_log_marginals: Optional[torch.FloatTensor] = None,
+        encoder_samples: Optional[list[torch.BoolTensor]] = None,
         encoder_attention_mode: Optional[str] = None,
+        encoder_attention_params: Optional[Dict[Any, Any]] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -933,7 +1000,9 @@ class GPT2Model(GPT2PreTrainedModel):
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_attention_mask=encoder_attention_mask,
                     encoder_log_marginals=encoder_log_marginals,
+                    encoder_samples=encoder_samples,
                     encoder_attention_mode=encoder_attention_mode,
+                    encoder_attention_params=encoder_attention_params,
                     use_cache=use_cache,
                     output_attentions=output_attentions,
                 )
@@ -1070,7 +1139,9 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         encoder_log_marginals: Optional[torch.FloatTensor] = None,
+        encoder_samples: Optional[list[torch.BoolTensor]] = None,
         encoder_attention_mode: Optional[str] = None,
+        encoder_attention_params: Optional[Dict[Any, Any]] = None,
         labels: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
@@ -1096,7 +1167,9 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=encoder_attention_mask,
             encoder_log_marginals=encoder_log_marginals,
+            encoder_samples=encoder_samples,
             encoder_attention_mode=encoder_attention_mode,
+            encoder_attention_params=encoder_attention_params,
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,

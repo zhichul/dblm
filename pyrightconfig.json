@@ -1,0 +1,5 @@
+{
+    "ignore": [
+        "src/dblm/core/modeling/gpt2.py",
+    ],
+}

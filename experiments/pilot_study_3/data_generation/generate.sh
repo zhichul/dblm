@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-for NVARS in 20
+for NVARS in 10 #20
 do
 for NVALS in 7 # 5 6 7 # 2 3 4
 do
 for Z_SEED in 42
 do
-for SEQ_LEN in 20 # 10 
+for SEQ_LEN in 10 #20 # 10 
 do
 for NBRANCHES in 3
 do
@@ -16,7 +16,7 @@ for MEAN in 0.0
 do
 for STD in 1.0 #0.9 1.0 1.1 # 0.7 1.2 1.3 # 0.9 1.0 1.1
 do
-for SAMPLE_SEED in 42 43 44 45 # 46 47 48 49 50 51 
+for SAMPLE_SEED in 42 # 43 44 45 # 46 47 48 49 50 51 
 do
 for N in 100000
 do

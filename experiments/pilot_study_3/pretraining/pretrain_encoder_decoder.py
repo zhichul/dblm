@@ -35,7 +35,10 @@ def parse_args():
     parser.add_argument("--gpu_batch_size", type=int, required=True)
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--n_layer", type=int, required=True)
+    parser.add_argument("--encoder_n_layer", type=int, default=0, required=False)
     parser.add_argument("--output_dir", type=str, required=True)
+
+    parser.add_argument("--name", type=str, default=None, required=False)
 
     args = parser.parse_args()
     return args
@@ -87,7 +90,7 @@ def main():
                                                     is_decoder=True))
     encoder = bert.BertModel(bert.BertConfig(vocab_size=args.nvars * args.nvals + 1,
                                                     max_position_embeddings=args.nvars,
-                                                    num_hidden_layers=0,
+                                                    num_hidden_layers=args.encoder_n_layer,
                                                     pad_token_id=args.nvars * args.nvals))
     model = EncoderDecoderModel(encoder=encoder, decoder=decoder)
     model.to("cuda")
@@ -100,6 +103,7 @@ def main():
 
     # train
     run = wandb.init(
+        name=args.name,
         # Set the project where this run will be logged
         project="dblm",
         group="pilot_study_3/pretrain_encoder_decoder",
